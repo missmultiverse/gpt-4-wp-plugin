@@ -1,0 +1,13 @@
+# Ignore macOS and Windows system files
+.DS_Store
+Thumbs.db
+
+# Ignore logs
+logs/
+wp-content/debug.log
+
+# Ignore temp files
+*.tmp
+*.swp
+*.bak
+*~

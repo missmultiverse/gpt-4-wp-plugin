@@ -1,0 +1,15 @@
+# Ensure consistent text file normalization
+* text=auto
+
+# Mark plugin PHP file as linguist-detectable source
+*.php linguist-language=PHP
+
+# Exclude system and temp files from export
+.DS_Store export-ignore
+Thumbs.db export-ignore
+logs/ export-ignore
+wp-content/debug.log export-ignore
+*.tmp export-ignore
+*.swp export-ignore
+*.bak export-ignore
+*~ export-ignore
