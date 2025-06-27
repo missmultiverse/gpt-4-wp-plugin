@@ -474,7 +474,7 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'id' => [
-                'validate_callback' => 'is_numeric',
+                'validate_callback' => function($value) { return is_numeric($value); },
             ],
         ],
     ]);
@@ -641,30 +641,40 @@ function gpt_edit_post_endpoint($request) {
         return gpt_error_response('Failed to update post', 500);
     }
 
+    // Get the updated post to check its status
+    $updated_post = get_post($result);
+    error_log("Updated post status: " . $updated_post->post_status);
+
+    // Check if the post is published or not
+    if ($updated_post->post_status === 'publish') {
+        return new WP_REST_Response([
+            'post_id' => $result,
+            'status' => 'success',
+            'message' => 'Post successfully updated and published.'
+        ], 200);
+    } else {
+        return new WP_REST_Response([
+            'post_id' => $result,
+            'status' => 'pending',
+            'message' => 'Post updated, but pending approval for publication.'
+        ], 200);
+    }
+
     // Update categories
     if (!empty($params['categories'])) {
-        $categories = array_map('intval', (array) $params['categories']);
-        wp_set_post_categories($id, $categories);
+        wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
     }
-
-    // Update tags
     if (!empty($params['tags'])) {
-        wp_set_post_tags($id, (array) $params['tags']);
+        wp_set_post_tags($result, (array) $params['tags']);
     }
-
-    // Update featured image
     if (!empty($params['featured_image'])) {
-        set_post_thumbnail($id, intval($params['featured_image']));
+        set_post_thumbnail($result, intval($params['featured_image']));
     }
-
-    // Update post meta
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
-            update_post_meta($id, sanitize_key($key), sanitize_text_field($value));
+            update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
         }
     }
-
-    error_log("Post updated successfully with ID: $result");
 
     return ['post_id' => $result];
 }
@@ -678,26 +688,66 @@ function gpt_upload_media_endpoint($request)
     if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         return gpt_error_response('Invalid role', 403);
     }
-    if (empty($_FILES['file'])) {
-        return gpt_error_response('No file uploaded', 400);
+
+    // Check if URL is provided instead of a file upload
+    $image_url = $request->get_param('image_url');
+    
+    if ($image_url) {
+        // Validate URL
+        if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
+            return gpt_error_response('Invalid URL', 400);
+        }
+
+        // Download the image from the URL
+        $image_data = file_get_contents($image_url);
+        if (!$image_data) {
+            return gpt_error_response('Unable to download image from URL', 400);
+        }
+
+        // Generate a temporary file name for the downloaded image
+        $file_name = basename($image_url);
+        $file_path = wp_upload_dir()['path'] . '/' . $file_name;
+
+        // Save the file locally in WordPress uploads directory
+        file_put_contents($file_path, $image_data);
+
+        // Prepare the file for WordPress upload
+        $file = [
+            'name' => $file_name,
+            'type' => mime_content_type($file_path),
+            'tmp_name' => $file_path,
+            'error' => 0,
+            'size' => filesize($file_path)
+        ];
+
+        // Handle file upload to WordPress
+        $upload = wp_handle_sideload($file, ['test_form' => false]);
+        if (isset($upload['error'])) {
+            return gpt_error_response($upload['error'], 400);
+        }
+
+        // Create attachment in the WordPress media library
+        $attachment = [
+            'post_mime_type' => $upload['type'],
+            'post_title' => sanitize_file_name($file_name),
+            'post_content' => '',
+            'post_status' => 'inherit',
+        ];
+
+        $attach_id = wp_insert_attachment($attachment, $upload['file']);
+        require_once(ABSPATH . 'wp-admin/includes/image.php');
+        $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
+        wp_update_attachment_metadata($attach_id, $attach_data);
+
+        // Delete the temporary file
+        unlink($file_path);
+
+        return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
     }
-    $file = $_FILES['file'];
-    $upload = wp_handle_upload($file, ['test_form' => false]);
-    if (isset($upload['error'])) {
-        return gpt_error_response($upload['error'], 400);
-    }
-    $attachment = [
-        'post_mime_type' => $upload['type'],
-        'post_title' => sanitize_file_name($file['name']),
-        'post_content' => '',
-        'post_status' => 'inherit',
-    ];
-    $attach_id = wp_insert_attachment($attachment, $upload['file']);
-    require_once(ABSPATH . 'wp-admin/includes/image.php');
-    $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
-    wp_update_attachment_metadata($attach_id, $attach_data);
-    return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
+
+    return gpt_error_response('No image URL provided', 400);
 }
+
 
 // --- REST: Dynamic OpenAPI Schema Endpoint ---
 function gpt_openapi_schema_handler()
