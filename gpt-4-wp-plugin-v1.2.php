@@ -30,7 +30,7 @@ function gpt_rest_api_error_wrapper($callback)
                 return $result;
             }
             return $result;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
                 error_log('[GPT-4-WP-Plugin] Exception: ' . $e->getMessage());
             }
