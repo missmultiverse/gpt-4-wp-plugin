@@ -229,15 +229,16 @@ function gpt_api_keys_page()
     } else {
         echo '<p style="color:red;font-size:1.2em;"><span style="font-size:1.5em;vertical-align:middle;">&#x274C;</span> GPT Plugin is <strong>Not Active</strong>.</p>';
     }
-    // REST API endpoint reachability
-    echo '<ul style="list-style:none;padding-left:0;">';
+    // --- Split status list into two columns ---
+    echo '<div style="display:flex;gap:24px;align-items:flex-start;margin-bottom:20px;">';
+    // Left column
+    echo '<ul style="list-style:none;padding-left:0;flex:1;min-width:260px;">';
     echo '<li>';
     echo $openapi_ok ? '<span style="color:green;">&#x2705; OpenAPI endpoint reachable</span>' : '<span style="color:red;">&#x274C; OpenAPI endpoint unreachable: ' . esc_html(is_wp_error($openapi_resp) ? $openapi_resp->get_error_message() : wp_remote_retrieve_response_code($openapi_resp)) . '</span>';
     echo '</li>';
     echo '<li>';
     echo $manifest_ok ? '<span style="color:green;">&#x2705; ai-plugin.json endpoint reachable</span>' : '<span style="color:red;">&#x274C; ai-plugin.json endpoint unreachable: ' . esc_html(is_wp_error($manifest_resp) ? $manifest_resp->get_error_message() : wp_remote_retrieve_response_code($manifest_resp)) . '</span>';
     echo '</li>';
-    // API key existence
     echo '<li>';
     if (is_array($keys) && count($keys) > 0) {
         echo '<span style="color:green;">&#x2705; At least one API key exists</span>';
@@ -245,7 +246,6 @@ function gpt_api_keys_page()
         echo '<span style="color:red;">&#x274C; No API keys found. GPTs cannot connect.</span>';
     }
     echo '</li>';
-    // Permalink structure
     echo '<li>';
     if ($permalink_structure && $permalink_structure !== '') {
         echo '<span style="color:green;">&#x2705; Permalinks are set to Pretty</span>';
@@ -253,7 +253,9 @@ function gpt_api_keys_page()
         echo '<span style="color:orange;">&#x26A0; Permalinks are set to Plain. REST API may not work optimally.</span>';
     }
     echo '</li>';
-    // HTTPS check
+    echo '</ul>';
+    // Right column
+    echo '<ul style="list-style:none;padding-left:0;flex:1;min-width:260px;">';
     echo '<li>';
     if ($is_https) {
         echo '<span style="color:green;">&#x2705; Site is using HTTPS</span>';
@@ -261,7 +263,6 @@ function gpt_api_keys_page()
         echo '<span style="color:orange;">&#x26A0; Site is not using HTTPS. GPT integrations may require secure endpoints.</span>';
     }
     echo '</li>';
-    // REST API availability
     echo '<li>';
     if ($rest_enabled) {
         echo '<span style="color:green;">&#x2705; WordPress REST API is enabled</span>';
@@ -269,7 +270,6 @@ function gpt_api_keys_page()
         echo '<span style="color:red;">&#x274C; WordPress REST API is disabled by a plugin or custom code.</span>';
     }
     echo '</li>';
-    // PHP extensions
     echo '<li>';
     if ($curl_loaded && $json_loaded) {
         echo '<span style="color:green;">&#x2705; Required PHP extensions (curl, json) are loaded</span>';
@@ -283,6 +283,7 @@ function gpt_api_keys_page()
     }
     echo '</li>';
     echo '</ul>';
+    echo '</div>';
     // --- Recent API Errors (last 5) ---
     $log_path = defined('WP_DEBUG_LOG') ? WP_DEBUG_LOG : ABSPATH . 'wp-content/debug.log';
     $recent_errors = [];
