@@ -206,13 +206,27 @@ function gpt_api_keys_page()
     $log_path = defined('WP_DEBUG_LOG') ? WP_DEBUG_LOG : ABSPATH . 'wp-content/debug.log';
     $recent_errors = [];
     if (file_exists($log_path)) {
-        $lines = @file($log_path);
-        if ($lines) {
+        $fp = fopen($log_path, 'r');
+        if ($fp) {
+            $lines = [];
+            $max = 1000; // Read up to last 1000 lines for efficiency
+            $buffer = 4096;
+            fseek($fp, 0, SEEK_END);
+            $pos = ftell($fp);
+            $chunk = '';
+            while ($pos > 0 && count($lines) < $max) {
+                $read = ($pos - $buffer > 0) ? $buffer : $pos;
+                $pos -= $read;
+                fseek($fp, $pos);
+                $chunk = fread($fp, $read) . $chunk;
+                $lines = explode("\n", $chunk);
+            }
+            fclose($fp);
             $lines = array_reverse($lines);
             foreach ($lines as $line) {
                 if (strpos($line, '[GPT-4-WP-Plugin]') !== false) {
                     $recent_errors[] = trim($line);
-                    if (is_array($recent_errors) && count($recent_errors) >= 5)
+                    if (count($recent_errors) >= 5)
                         break;
                 }
             }
@@ -339,7 +353,8 @@ function gpt_get_role_for_key($key)
 
 // --- Helper: Create a GPT User on Registration ---
 // --- Helper: Create a GPT User on Registration ---
-function create_gpt_user_on_registration($api_key, $role) {
+function create_gpt_user_on_registration($api_key, $role)
+{
     // Check if user already exists (perhaps by the label or API key)
     $user = get_user_by('email', $api_key);
 
@@ -353,7 +368,8 @@ function create_gpt_user_on_registration($api_key, $role) {
 }
 
 // --- Helper: Create a GPT User on Post Creation ---
-function create_gpt_user($api_key, $role) {
+function create_gpt_user($api_key, $role)
+{
     // Check if user already exists (perhaps by the label or API key)
     $user = get_user_by('email', $api_key); // Use API key as unique identifier
 
@@ -394,7 +410,7 @@ function create_gpt_user($api_key, $role) {
 
         return $user_id; // Return user ID if successful
     }
-    
+
     return $user->ID; // If user exists, return the existing user ID
 }
 
@@ -424,7 +440,7 @@ function gpt_rest_permission_check_role($request)
     // Only allow editing for roles with edit capability
     if (preg_match('#^/gpt/v1/post/\\d+$#', $route) && $request->get_method() === 'POST') {
         $id = $request->get_param('id');
-        
+
         // Fixed is_numeric() call - pass only the value to is_numeric
         if (!is_numeric($id)) {
             return gpt_error_response('Invalid post ID', 400);
@@ -474,7 +490,9 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'id' => [
-                'validate_callback' => function($value) { return is_numeric($value); },
+                'validate_callback' => function ($value) {
+                    return is_numeric($value);
+                },
             ],
         ],
     ]);
@@ -530,7 +548,7 @@ function gpt_create_post_endpoint($request)
 
     // Get or create the user at this stage of post creation
     $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role); // Create user if necessary
-    
+
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
         error_log("Failed to create or retrieve user for API key: " . $request->get_header('gpt-api-key'));
@@ -556,7 +574,7 @@ function gpt_create_post_endpoint($request)
     if ($role === 'gpt_editor') {
         $post_data['post_status'] = 'draft';
     }
-    
+
     // --- Debugging Step: Log the post data before insertion
     error_log("Inserting post with data: " . print_r($post_data, true));
 
@@ -592,7 +610,8 @@ function gpt_create_post_endpoint($request)
 
 
 // --- REST: Edit Post ---
-function gpt_edit_post_endpoint($request) {
+function gpt_edit_post_endpoint($request)
+{
     $role = $request->get_param('gpt_role');
     $id = (int) $request->get_param('id');  // Corrected usage of get_param()
     $params = $request->get_json_params();
@@ -689,63 +708,89 @@ function gpt_upload_media_endpoint($request)
         return gpt_error_response('Invalid role', 403);
     }
 
-    // Check if URL is provided instead of a file upload
-    $image_url = $request->get_param('image_url');
-    
-    if ($image_url) {
-        // Validate URL
-        if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
-            return gpt_error_response('Invalid URL', 400);
+    $uploads = wp_upload_dir();
+    if (!empty($uploads['error']) || !is_writable($uploads['path'])) {
+        return gpt_error_response('Upload directory is not writable.', 500);
+    }
+
+    // --- Support direct file uploads via $_FILES['file'] ---
+    if (!empty($_FILES['file']) && isset($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+        $file = $_FILES['file'];
+        $file['name'] = sanitize_file_name($file['name']);
+        $filetype = wp_check_filetype($file['name']);
+        if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
+            return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
         }
-
-        // Download the image from the URL
-        $image_data = file_get_contents($image_url);
-        if (!$image_data) {
-            return gpt_error_response('Unable to download image from URL', 400);
-        }
-
-        // Generate a temporary file name for the downloaded image
-        $file_name = basename($image_url);
-        $file_path = wp_upload_dir()['path'] . '/' . $file_name;
-
-        // Save the file locally in WordPress uploads directory
-        file_put_contents($file_path, $image_data);
-
-        // Prepare the file for WordPress upload
-        $file = [
-            'name' => $file_name,
-            'type' => mime_content_type($file_path),
-            'tmp_name' => $file_path,
-            'error' => 0,
-            'size' => filesize($file_path)
-        ];
-
-        // Handle file upload to WordPress
-        $upload = wp_handle_sideload($file, ['test_form' => false]);
+        $upload = wp_handle_upload($file, ['test_form' => false]);
         if (isset($upload['error'])) {
             return gpt_error_response($upload['error'], 400);
         }
+        $attachment = [
+            'post_mime_type' => $upload['type'],
+            'post_title' => sanitize_file_name($file['name']),
+            'post_content' => '',
+            'post_status' => 'inherit',
+        ];
+        $attach_id = wp_insert_attachment($attachment, $upload['file']);
+        require_once(ABSPATH . 'wp-admin/includes/image.php');
+        $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
+        wp_update_attachment_metadata($attach_id, $attach_data);
+        return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
+    }
 
-        // Create attachment in the WordPress media library
+    // --- Support image_url parameter ---
+    $image_url = $request->get_param('image_url');
+    if ($image_url) {
+        if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
+            return gpt_error_response('Invalid URL', 400);
+        }
+        $response = wp_remote_get($image_url, ['timeout' => 15]);
+        if (is_wp_error($response)) {
+            return gpt_error_response('Unable to download image: ' . $response->get_error_message(), 400);
+        }
+        $body = wp_remote_retrieve_body($response);
+        if (empty($body)) {
+            return gpt_error_response('Downloaded image is empty.', 400);
+        }
+        $file_name = sanitize_file_name(basename(parse_url($image_url, PHP_URL_PATH)));
+        $filetype = wp_check_filetype($file_name);
+        if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
+            return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
+        }
+        $tmpfname = wp_tempnam($file_name);
+        if (!$tmpfname) {
+            return gpt_error_response('Could not create a temporary file.', 500);
+        }
+        $bytes_written = file_put_contents($tmpfname, $body);
+        if ($bytes_written === false) {
+            @unlink($tmpfname);
+            return gpt_error_response('Failed to write image to temporary file.', 500);
+        }
+        $file = [
+            'name' => $file_name,
+            'type' => $filetype['type'],
+            'tmp_name' => $tmpfname,
+            'error' => 0,
+            'size' => filesize($tmpfname)
+        ];
+        $upload = wp_handle_sideload($file, ['test_form' => false]);
+        @unlink($tmpfname);
+        if (isset($upload['error'])) {
+            return gpt_error_response($upload['error'], 400);
+        }
         $attachment = [
             'post_mime_type' => $upload['type'],
             'post_title' => sanitize_file_name($file_name),
             'post_content' => '',
             'post_status' => 'inherit',
         ];
-
         $attach_id = wp_insert_attachment($attachment, $upload['file']);
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
         wp_update_attachment_metadata($attach_id, $attach_data);
-
-        // Delete the temporary file
-        unlink($file_path);
-
         return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
     }
-
-    return gpt_error_response('No image URL provided', 400);
+    return gpt_error_response('No image URL or file provided', 400);
 }
 
 
@@ -971,7 +1016,8 @@ add_action('rest_api_init', function () {
     ]);
 });
 
-function gpt_action_handler($request) {
+function gpt_action_handler($request)
+{
     $params = $request->get_json_params();
     $action = $params['action'] ?? null;
 
@@ -987,26 +1033,6 @@ function gpt_action_handler($request) {
             return new WP_Error('unknown_action', 'Unrecognized action: ' . esc_html($action), ['status' => 400]);
     }
 }
-
 // ========================================
 // --- END --- GPT Universal Action Route
 // ========================================
-
-// --- START --- Register GPT REST API Endpoints ---
-add_action('rest_api_init', function () {
-    register_rest_route('gpt/v1', '/action', [
-        'methods' => 'POST',
-        'callback' => 'gpt_rest_action_handler',
-        'permission_callback' => '__return_true',
-    ]);
-});
-
-// --- Simple ping handler for testing ---
-function gpt_rest_action_handler($request) {
-    $params = $request->get_json_params();
-    if (isset($params['action']) && $params['action'] === 'ping') {
-        return rest_ensure_response(['pong' => true]);
-    }
-    return new WP_REST_Response(['error' => 'Unknown action'], 400);
-}
-// --- END --- Register GPT REST API Endpoints ---
