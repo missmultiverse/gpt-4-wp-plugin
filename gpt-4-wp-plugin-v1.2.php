@@ -2,6 +2,8 @@
 /*
 Plugin Name: GPT-4-WP-Plugin v1.2
 Description: Simple REST API and API key management for GPTs with Webmaster, Publisher, and Editor roles. No bloat. Single-file version.
+Plugin URI: https://github.com/missmultiverse/gpt-4-wp-plugin
+GitHub Plugin URI: https://github.com/missmultiverse/gpt-4-wp-plugin
 Version: 1.2.0
 Author: MissMultiverse
 */
