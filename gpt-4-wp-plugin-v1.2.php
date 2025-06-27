@@ -321,7 +321,7 @@ function gpt_rest_permission_check_role($request)
     $key = $request->get_header('gpt-api-key');
     $role = gpt_get_role_for_key($key);
     if (!$role) {
-        return false;
+        return gpt_error_response('Invalid or missing API key.', 401);
     }
     $request->set_param('gpt_role', $role);
     // Route-specific permission logic
