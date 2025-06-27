@@ -3,7 +3,7 @@
 Plugin Name: GPT-4-WP-Plugin v1.2
 Description: Simple REST API and API key management for GPTs with Webmaster, Publisher, and Editor roles. No bloat. Single-file version.
 Version: 1.2.0
-Author: Your Team
+Author: MissMultiverse
 */
 
 // --- Centralized error response and logging helper (for use in REST endpoints) ---
