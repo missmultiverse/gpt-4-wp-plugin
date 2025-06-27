@@ -4,9 +4,9 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 
 ## Features
 - **Pre-configured GPTs:** WebMaster.GPT, Linda.GPT (Webmaster); AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT (Publisher); CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT (Editor) — all auto-linked to all sites, no manual setup needed
-- **Site selection:** Admin UI lets you select the current site from a list of 15 supported domains; plugin configures itself dynamically
+- **Preconfigured Site Domains:** 15 supported domains are hardcoded and selectable in the admin UI. The plugin dynamically configures all endpoints and links based on the selected site. (See "How Preconfiguration Works" below.)
 - **API key management:** Create, assign roles, label, and revoke API keys via the admin UI
-- **Role-based access control:** Three roles (Webmaster, Publisher, Editor) with distinct capabilities
+- **Role-based access control:** Four roles (Administrator/gpt_admin, Webmaster, Publisher, Editor) with distinct capabilities
 - **REST API endpoints:**
   - Create and edit posts
   - Upload media
@@ -19,8 +19,25 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
   - Site selection dropdown (dynamic config)
   - API key management (generate, list, revoke, assign, label)
   - Site ping test (both GPT→WordPress and WordPress→GPT)
-  - REST endpoint diagnostics and status
+  - REST endpoint diagnostics and status (now split into two columns for clarity)
+  - Recent API error log display
 - **All code in a single file:** Easy to install, portable, and maintainable
+
+---
+
+## How Preconfiguration Works
+
+### Pre-configured GPTs
+- The plugin hardcodes a list of built-in GPTs in the function `gpt_get_preconfigured_gpts()`.
+- These GPTs (WebMaster.GPT, Linda.GPT, AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT, CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT) are always present, auto-linked to all sites, and shown in the admin UI.
+- Each GPT is mapped to a specific role (Administrator, Webmaster, Publisher, Editor) and cannot be removed or edited for security and simplicity.
+- The admin UI displays the API key (if generated) for each preconfigured GPT.
+
+### Preconfigured Site Domains
+- The function `gpt_get_sites_list()` returns a hardcoded array of 15 supported domains.
+- The admin UI provides a dropdown to select the current site; all relevant links and endpoints update dynamically based on this selection.
+- The selected site is stored in the WordPress options table and used for all dynamic configuration.
+- This ensures the plugin is scalable and easy to manage across multiple domains.
 
 ---
 
@@ -42,7 +59,7 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 - **Site Ping Test:**
   - **WordPress → GPT:** Ping button in admin UI tests outbound connectivity to the REST API.
   - **GPT → WordPress:** Use the GET `/wp-json/gpt/v1/post` endpoint from your agent to test inbound connectivity and API key validity.
-- **REST Endpoint Diagnostics:** Status checks for OpenAPI, ai-plugin.json, permalinks, HTTPS, REST API, PHP extensions, and recent API errors.
+- **REST Endpoint Diagnostics:** Status checks for OpenAPI, ai-plugin.json, permalinks, HTTPS, REST API, PHP extensions, and recent API errors. (Now displayed in two columns for better readability.)
 
 ---
 
@@ -245,7 +262,8 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 ---
 
 ## Role Capabilities
-- **Webmaster:** Full access to all endpoints and actions (including plugin file management)
+- **Administrator (gpt_admin):** Full access to all endpoints and actions, including plugin file management and diagnostics
+- **Webmaster:** Full access to all endpoints except plugin file management
 - **Publisher:** Can create, edit, and publish posts/media
 - **Editor:** Can create and edit drafts, upload media (no publishing)
 
@@ -255,7 +273,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 - All endpoints require a valid API key with an assigned role
 - Role-based permission checks for every action
 - API keys are never exposed in logs or responses
-- Pre-configured GPTs are always available and cannot be removed (for security and simplicity)
+- Pre-configured GPTs and site domains are always available and cannot be removed (for security and simplicity)
 - **File management endpoints are strictly limited to the plugin directory and only available to gpt_admin**
 
 ---
@@ -266,7 +284,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
   - Pre-configured GPTs table
   - API key management
   - Site ping test (both directions)
-  - REST endpoint diagnostics and error logs
+  - REST endpoint diagnostics and error logs (now in two columns)
 - Use the plugin file management endpoints for advanced diagnostics, troubleshooting, and self-repair (gpt_admin only).
 - If you encounter errors, ensure the plugin is activated and you are using a valid API key.
 - Use the dynamic manifest and OpenAPI endpoints—do not use or create static ai-plugin.json or openapi.yaml files.
