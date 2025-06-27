@@ -158,7 +158,7 @@ function gpt_api_keys_page()
     echo '</li>';
     // API key existence
     echo '<li>';
-    if (count($keys) > 0) {
+    if (is_array($keys) && count($keys) > 0) {
         echo '<span style="color:green;">&#x2705; At least one API key exists</span>';
     } else {
         echo '<span style="color:red;">&#x274C; No API keys found. GPTs cannot connect.</span>';
@@ -212,7 +212,7 @@ function gpt_api_keys_page()
             foreach ($lines as $line) {
                 if (strpos($line, '[GPT-4-WP-Plugin]') !== false) {
                     $recent_errors[] = trim($line);
-                    if (count($recent_errors) >= 5)
+                    if (is_array($recent_errors) && count($recent_errors) >= 5)
                         break;
                 }
             }
