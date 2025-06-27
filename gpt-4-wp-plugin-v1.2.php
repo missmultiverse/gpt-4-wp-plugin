@@ -354,33 +354,6 @@ function gpt_get_role_for_key($key)
     return isset($keys[$key]) ? $keys[$key]['role'] : false;
 }
 
-// --- Helper: Validate API key and user permissions for publishing ---
-/**
- * Validates an API key and checks if the associated user role has 'publish_posts' capability.
- * Returns true if valid and permitted, otherwise a WP_Error.
- *
- * @param string $api_key The API key to validate.
- * @return true|WP_Error
- */
-function gpt_validate_api_key_publish_permission($api_key)
-{
-    $keys = get_option('gpt_api_keys', []);
-    if (empty($api_key) || !isset($keys[$api_key])) {
-        return new WP_Error('gpt_invalid_key', 'Invalid or missing API key.', ['status' => 401]);
-    }
-    $role = $keys[$api_key]['role'];
-    // Map custom roles to capabilities
-    $role_caps = [
-        'gpt_webmaster' => ['publish_posts'],
-        'gpt_publisher' => ['publish_posts'],
-        'gpt_editor' => [], // Editors do not have publish_posts
-    ];
-    if (!isset($role_caps[$role]) || !in_array('publish_posts', $role_caps[$role])) {
-        return new WP_Error('gpt_insufficient_permissions', 'API key does not have permission to publish posts.', ['status' => 403]);
-    }
-    return true;
-}
-
 // --- Helper: Role-based REST permission check for each route ---
 function gpt_rest_permission_check_role($request)
 {
@@ -467,17 +440,6 @@ function gpt_ping_post_endpoint($request)
         'message' => 'Ping successful. WordPress site is reachable and API key is valid.',
         'role' => $role
     ], 200);
-}
-
-// --- REST Permission Check ---
-function gpt_rest_permission_check($request)
-{
-    $key = $request->get_header('gpt-api-key');
-    $role = gpt_get_role_for_key($key);
-    if (!$role)
-        return false;
-    $request->set_param('gpt_role', $role);
-    return true;
 }
 
 // --- REST: Create Post ---
