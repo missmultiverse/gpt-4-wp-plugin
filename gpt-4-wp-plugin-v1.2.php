@@ -311,8 +311,14 @@ function gpt_api_keys_page()
 
 // Add settings link in plugin list
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links) {
+    if (!is_array($links)) {
+        $links = [];
+    }
+
     $url = admin_url('tools.php?page=gpt-api-keys');
     $links[] = '<a href="' . esc_url($url) . '">Settings</a>';
+
+    return $links; // ✅ THIS is what was missing
 });
 
 // --- Helper: Validate API key and get role ---
