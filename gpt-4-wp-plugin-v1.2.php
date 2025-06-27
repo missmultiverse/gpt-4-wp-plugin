@@ -540,6 +540,26 @@ function gpt_openapi_schema_handler()
                     'in' => 'header',
                     'name' => 'gpt-api-key',
                 ]
+            ],
+            'schemas' => [
+                'PostInput' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'title' => ['type' => 'string'],
+                        'content' => ['type' => 'string'],
+                        'excerpt' => ['type' => 'string'],
+                        'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
+                        'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
+                        'featured_image' => ['type' => 'integer'],
+                        'format' => ['type' => 'string'],
+                        'slug' => ['type' => 'string'],
+                        'author' => ['type' => 'integer'],
+                        'post_status' => ['type' => 'string'],
+                        'post_date' => ['type' => 'string'],
+                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
+                    ],
+                    'required' => ['title', 'content']
+                ]
             ]
         ],
         'security' => [['ApiKeyAuth' => []]],
@@ -639,28 +659,6 @@ function gpt_openapi_schema_handler()
                             ]
                         ]
                     ]
-                ]
-            ]
-        ],
-        'components' => [
-            'schemas' => [
-                'PostInput' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'title' => ['type' => 'string'],
-                        'content' => ['type' => 'string'],
-                        'excerpt' => ['type' => 'string'],
-                        'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
-                        'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
-                        'featured_image' => ['type' => 'integer'],
-                        'format' => ['type' => 'string'],
-                        'slug' => ['type' => 'string'],
-                        'author' => ['type' => 'integer'],
-                        'post_status' => ['type' => 'string'],
-                        'post_date' => ['type' => 'string'],
-                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
-                    ],
-                    'required' => ['title', 'content']
                 ]
             ]
         ]
