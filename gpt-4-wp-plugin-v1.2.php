@@ -221,45 +221,6 @@ function gpt_api_keys_page()
     } else {
         echo '<p style="color:green;">No recent API errors found.</p>';
     }
-    // --- Ping Site Button ---
-    $ping_nonce = wp_create_nonce("gpt_ping_site_nonce");
-    echo '<div style="margin:20px 0;">'
-        . '<button id="gpt-ping-site-btn" class="button">Ping Site (Test /wp-json/gpt/v1/post)</button>'
-        . '<span id="gpt-ping-site-result" style="margin-left:15px;font-weight:bold;"></span>'
-        . '</div>';
-    echo '<script type="text/javascript">
-    document.addEventListener("DOMContentLoaded", function() {
-        var btn = document.getElementById("gpt-ping-site-btn");
-        var result = document.getElementById("gpt-ping-site-result");
-        if (btn) {
-            btn.addEventListener("click", function() {
-                result.textContent = "Pinging...";
-                btn.disabled = true;
-                fetch(ajaxurl, {
-                    method: "POST",
-                    credentials: "same-origin",
-                    headers: {"Content-Type": "application/x-www-form-urlencoded"},
-                    body: "action=gpt_ping_site&nonce=' + $ping_nonce + '"
-                })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        result.style.color = "green";
-                        result.textContent = "Success: " + data.data;
-                    } else {
-                        result.style.color = "#b00";
-                        result.textContent = "Error: " + (data.data || data.message);
-                    }
-                })
-                .catch(e => {
-                    result.style.color = "#b00";
-                    result.textContent = "AJAX error: " + e;
-                })
-                .finally(() => { btn.disabled = false; });
-            });
-        }
-    });
-    </script>';
     ?>
     <div class="wrap">
         <h1>GPT API Key Management</h1>
