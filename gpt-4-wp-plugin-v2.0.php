@@ -3,7 +3,7 @@
 Plugin Name: GPT-4 WP Plugin
 Plugin URI: https://github.com/missmultiverse/gpt-4-wp-plugin
 Description: Integrates GPT-4 with WordPress using GitHub auto-update via Git Updater.
-Version: 1.0.0
+Version: 2.0.0
 Author: MissMultiverse
 Author URI: https://missmultiverse.com
 License: GPLv2 or later
@@ -48,6 +48,17 @@ function gpt_rest_api_error_wrapper($callback)
 
 // --- Register custom roles on plugin activation ---
 register_activation_hook(__FILE__, function () {
+    add_role('gpt_admin', 'GPT Administrator', [
+        'read' => true,
+        'edit_posts' => true,
+        'publish_posts' => true,
+        'manage_options' => true,
+        'upload_files' => true,
+        'edit_others_posts' => true,
+        'delete_posts' => true,
+        'delete_others_posts' => true,
+        'gpt_manage_files' => true, // custom cap for file management
+    ]);
     add_role('gpt_webmaster', 'GPT Webmaster', [
         'read' => true,
         'edit_posts' => true,
@@ -75,6 +86,7 @@ register_activation_hook(__FILE__, function () {
 
 // --- Remove custom roles on deactivation ---
 register_deactivation_hook(__FILE__, function () {
+    remove_role('gpt_admin');
     remove_role('gpt_webmaster');
     remove_role('gpt_publisher');
     remove_role('gpt_editor');
@@ -99,10 +111,43 @@ function gpt_api_keys_page()
     if (!current_user_can('manage_options'))
         return;
     $roles = [
+        'gpt_admin' => 'Administrator',
         'gpt_webmaster' => 'Webmaster',
         'gpt_publisher' => 'Publisher',
         'gpt_editor' => 'Editor',
     ];
+    $pre_gpts = gpt_get_preconfigured_gpts();
+    $sites = gpt_get_sites_list();
+    // --- Handle site selection (single handler, DRY) ---
+    if (isset($_POST['gpt_selected_site'])) {
+        $selected_site = sanitize_text_field($_POST['gpt_selected_site']);
+        gpt_set_selected_site($selected_site);
+        echo '<div class="updated"><p>Site selected: <strong>' . esc_html($selected_site) . '</strong></p></div>';
+    }
+    $selected_site = gpt_get_selected_site();
+    // --- UI: Site selection dropdown ---
+    echo '<form method="post" style="margin-bottom:20px;">';
+    echo '<label for="gpt_selected_site"><strong>Select Site:</strong></label> ';
+    echo '<select name="gpt_selected_site" id="gpt_selected_site">';
+    foreach ($sites as $site) {
+        echo '<option value="' . esc_attr($site) . '"' . selected($selected_site, $site, false) . '>' . esc_html($site) . '</option>';
+    }
+    echo '</select> ';
+    echo '<button type="submit" class="button">Apply</button>';
+    echo '</form>';
+    echo '<p><strong>Current Site:</strong> ' . esc_html($selected_site) . '</p>';
+    // --- UI: Pre-configured GPTs table ---
+    echo '<h2>Pre-configured GPTs (Auto-linked to all sites)</h2>';
+    echo '<table class="widefat"><thead><tr><th>Label</th><th>Role</th><th>Site Access</th></tr></thead><tbody>';
+    foreach ($pre_gpts as $gpt) {
+        echo '<tr>';
+        echo '<td>' . esc_html($gpt['label']) . '</td>';
+        echo '<td>' . esc_html($roles[$gpt['role']] ?? $gpt['role']) . '</td>';
+        echo '<td>All Sites</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+    // --- UI: Key management and status (existing code follows) ---
     // Handle form submissions
     if (isset($_POST['gpt_generate_key'], $_POST['gpt_role']) && check_admin_referer('gpt_api_key_action', 'gpt_api_key_nonce')) {
         $key = wp_generate_password(32, false, false);
@@ -298,6 +343,7 @@ function gpt_api_keys_page()
                 var roleSelect = document.getElementById('gpt_role');
                 var capDiv = document.getElementById('gpt-role-capabilities');
                 var roleCaps = {
+                    'gpt_admin': ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts', 'gpt_manage_files'],
                     'gpt_webmaster': ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts'],
                     'gpt_publisher': ['read', 'edit_posts', 'publish_posts', 'upload_files', 'edit_others_posts', 'delete_posts'],
                     'gpt_editor': ['read', 'edit_posts', 'upload_files']
@@ -340,6 +386,26 @@ function gpt_api_keys_page()
                 <?php endforeach; ?>
             </tbody>
         </table>
+        <!-- --- Pre-configured GPTs Table --- -->
+        <h2>Pre-configured GPTs (Auto-linked to all sites)</h2>
+        <table class="widefat">
+            <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Role</th>
+                    <th>Site Access</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($pre_gpts as $gpt): ?>
+                    <tr>
+                        <td><?php echo esc_html($gpt['label']); ?></td>
+                        <td><?php echo esc_html($roles[$gpt['role']] ?? $gpt['role']); ?></td>
+                        <td>All Sites</td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
     <?php
 }
@@ -370,126 +436,66 @@ function gpt_get_role_for_key($key)
 }
 
 
-//NEW CODE
-
-// --- Helper: Create a GPT User on Registration ---
-// --- Helper: Create a GPT User on Registration ---
-function create_gpt_user_on_registration($api_key, $role)
+// --- Pre-configured GPTs and Sites ---
+function gpt_get_preconfigured_gpts()
 {
-    // Check if user already exists (perhaps by the label or API key)
-    $user = get_user_by('email', $api_key);
-
-    // If user already exists, return their ID
-    if ($user) {
-        return $user->ID;
+    return [
+        ['label' => 'WebMaster.GPT', 'role' => 'gpt_admin'],
+        ['label' => 'Linda.GPT', 'role' => 'gpt_webmaster'],
+        ['label' => 'AgentX.GPT', 'role' => 'gpt_publisher'],
+        ['label' => 'Automatron.GPT', 'role' => 'gpt_publisher'],
+        ['label' => 'SEO-Inspector.GPT', 'role' => 'gpt_publisher'],
+        ['label' => 'CrownLeads.GPT', 'role' => 'gpt_editor'],
+        ['label' => 'Leadsy.GPT', 'role' => 'gpt_editor'],
+        ['label' => 'VIRALIA.GPT', 'role' => 'gpt_editor'],
+    ];
+}
+function gpt_get_sites_list()
+{
+    return [
+        'allcelebritiesworld.com',
+        'celebrityandmovies.com',
+        'celebritytvstars.com',
+        'charity.missmultiverse.com',
+        'famoustvcelebrities.com',
+        'famoustvstars.com',
+        'gausachs.com',
+        'latestpageantnews.com',
+        'lindagrandia.com',
+        'missmultiverse.com',
+        'missosology.com',
+        'misspowerwoman.com',
+        'multiverseventuresgroup.com',
+        'pageantfame.com',
+        'pageantmayhem.com',
+    ];
+}
+function gpt_get_selected_site()
+{
+    $sites = gpt_get_sites_list();
+    $selected = get_option('gpt_selected_site');
+    if ($selected && in_array($selected, $sites, true))
+        return $selected;
+    return $sites[0]; // default to first
+}
+function gpt_set_selected_site($site)
+{
+    $sites = gpt_get_sites_list();
+    if (in_array($site, $sites, true)) {
+        update_option('gpt_selected_site', $site);
     }
-
-    // Otherwise, create the user on registration
-    return create_gpt_user($api_key, $role);
 }
 
-// --- Helper: Create a GPT User on Post Creation ---
-function create_gpt_user($api_key, $role)
+// --- Helper: Get current site config (for dynamic endpoint/settings adjustment) ---
+function gpt_get_current_site_config()
 {
-    // Check if user already exists (perhaps by the label or API key)
-    $user = get_user_by('email', $api_key); // Use API key as unique identifier
-
-    // If user doesn't exist, create them
-    if (!$user) {
-        // Ensure a unique username by appending a unique string if necessary
-        $username = 'gpt_' . sanitize_text_field($api_key);
-        $existing_user = get_user_by('login', $username); // Check if the username exists
-
-        if ($existing_user) {
-            // Append a unique suffix if the username exists
-            $username = $username . '_' . uniqid();
-        }
-
-        // Set the user display name to be ViraliaGPT or another preferred method
-        $display_name = 'ViraliaGPT'; // You can modify this to be dynamic based on the request or other factors.
-
-        // Create a new user for the GPT
-        $user_data = [
-            'user_login' => $username, // Unique username
-            'user_email' => sanitize_email($api_key), // Unique email based on API key
-            'user_pass' => wp_generate_password(12, false), // Secure password
-            'role' => $role, // Assign the role (e.g., 'gpt_webmaster')
-            'first_name' => sanitize_text_field($api_key), // Optional: You can add more info if needed
-            'display_name' => $display_name, // Set display name correctly here
-        ];
-
-        // Insert the user and check for errors
-        $user_id = wp_insert_user($user_data);
-
-        if (is_wp_error($user_id)) {
-            error_log('Error creating GPT user: ' . $user_id->get_error_message());
-            return false;
-        }
-
-        // Optional: You can add extra user meta or fields if necessary
-        update_user_meta($user_id, 'gpt_api_key', $api_key);
-
-        return $user_id; // Return user ID if successful
-    }
-
-    return $user->ID; // If user exists, return the existing user ID
+    $site = gpt_get_selected_site();
+    // You can expand this to return more config per site if needed
+    return [
+        'site' => $site,
+        'api_base' => 'https://' . $site . '/wp-json/gpt/v1',
+    ];
 }
-
-
-//NEW CODE
-
-
-// --- Helper: Role-based REST permission check for each route ---
-function gpt_rest_permission_check_role($request)
-{
-    // ✅ Accept both "gpt-api-key" and "Authorization: Bearer" headers
-    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
-
-    // 🧪 Optional debug log
-    error_log('🔐 [Auth] API key used in permission check: ' . $key);
-
-    $role = gpt_get_role_for_key($key);
-    if (!$role) {
-        return gpt_error_response('Invalid or missing API key.', 401);
-    }
-
-    $request->set_param('gpt_role', $role);
-
-    // Route-specific permission logic
-    $route = $request->get_route();
-
-    // Only allow editing for roles with edit capability
-    if (preg_match('#^/gpt/v1/post/\\d+$#', $route) && $request->get_method() === 'POST') {
-        $id = $request->get_param('id');
-
-        // Fixed is_numeric() call - pass only the value to is_numeric
-        if (!is_numeric($id)) {
-            return gpt_error_response('Invalid post ID', 400);
-        }
-
-        // Additional logic to ensure the user can edit the post based on role
-        if ($role === 'gpt_editor' && get_post_status($id) !== 'draft') {
-            return gpt_error_response('Editors can only edit drafts', 403);
-        }
-
-        // All roles can edit, but Editors can only edit drafts (handled in endpoint)
-        if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
-            return new WP_Error('gpt_forbidden', 'You do not have permission to edit posts.', ['status' => 403]);
-        }
-    }
-
-    // Only allow media upload for all roles
-    if ($route === '/gpt/v1/media' && $request->get_method() === 'POST') {
-        if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
-            return new WP_Error('gpt_forbidden', 'You do not have permission to upload media.', ['status' => 403]);
-        }
-    }
-
-    return true;
-}
-
-
-
 
 
 // --- REST API Endpoints ---
@@ -822,8 +828,8 @@ function gpt_openapi_schema_handler()
     $schema = [
         'openapi' => '3.1.0',
         'info' => [
-            'title' => 'GPT-4-WP-Plugin v1 API',
-            'version' => '1.0.0',
+            'title' => 'GPT-4-WP-Plugin v2 API',
+            'version' => '2.0.0',
             'description' => 'Secure REST API for WordPress content creation and management by GPTs/clients.'
         ],
         'servers' => [
@@ -970,10 +976,10 @@ function gpt_ai_plugin_manifest_handler()
     $plugin_url = $site_url . '/wp-content/plugins/gpt-4-wp-plugin-v1.2';
     $manifest = [
         'schema_version' => 'v1',
-        'name_for_human' => 'GPT-4 WP Plugin v1.2',
-        'name_for_model' => 'gpt_4_wp_plugin_v1_2',
-        'description_for_human' => 'Create, edit, and manage WordPress posts and media via secure API. Version 1.2, single-file, minimal and secure.',
-        'description_for_model' => 'A secure, minimal REST API for WordPress (v1.2) that allows GPTs/clients to create, edit, and manage posts and media using API keys and role-based permissions. Supports Webmaster, Publisher, and Editor roles.',
+        'name_for_human' => 'GPT-4 WP Plugin v2.0',
+        'name_for_model' => 'gpt_4_wp_plugin_v2_0',
+        'description_for_human' => 'Create, edit, and manage WordPress posts and media via secure API. Version 2.0, single-file, minimal and secure.',
+        'description_for_model' => 'A secure, minimal REST API for WordPress (v2.0) that allows GPTs/clients to create, edit, and manage posts and media using API keys and role-based permissions. Supports Webmaster, Publisher, and Editor roles.',
         'auth' => [
             'type' => 'api_key',
             'in' => 'header',
@@ -1056,4 +1062,248 @@ function gpt_action_handler($request)
 }
 // ========================================
 // --- END --- GPT Universal Action Route
-// ========================================
+
+// --- File Management REST Endpoints (gpt_admin only) ---
+add_action('rest_api_init', function () {
+    // Read file
+    register_rest_route('gpt/v1', '/file', [
+        'methods' => 'GET',
+        'callback' => gpt_rest_api_error_wrapper('gpt_file_read_endpoint'),
+        'permission_callback' => function ($request) {
+            return gpt_rest_permission_check_gpt_admin($request);
+        },
+        'args' => [
+            'path' => [
+                'required' => true,
+                'validate_callback' => function ($value) {
+                    return is_string($value) && $value !== '';
+                }
+            ]
+        ]
+    ]);
+    // Write file
+    register_rest_route('gpt/v1', '/file', [
+        'methods' => 'POST',
+        'callback' => gpt_rest_api_error_wrapper('gpt_file_write_endpoint'),
+        'permission_callback' => function ($request) {
+            return gpt_rest_permission_check_gpt_admin($request);
+        }
+    ]);
+    // Create directory
+    register_rest_route('gpt/v1', '/dir', [
+        'methods' => 'POST',
+        'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
+        'permission_callback' => function ($request) {
+            return gpt_rest_permission_check_gpt_admin($request);
+        }
+    ]);
+    // List files/directories
+    register_rest_route('gpt/v1', '/ls', [
+        'methods' => 'GET',
+        'callback' => gpt_rest_api_error_wrapper('gpt_file_list_endpoint'),
+        'permission_callback' => function ($request) {
+            return gpt_rest_permission_check_gpt_admin($request);
+        },
+        'args' => [
+            'path' => [
+                'required' => false,
+                'validate_callback' => function ($value) {
+                    return is_string($value);
+                }
+            ]
+        ]
+    ]);
+    // Delete file or directory
+    register_rest_route('gpt/v1', '/file', [
+        'methods' => 'DELETE',
+        'callback' => gpt_rest_api_error_wrapper('gpt_file_delete_endpoint'),
+        'permission_callback' => function ($request) {
+            return gpt_rest_permission_check_gpt_admin($request);
+        },
+        'args' => [
+            'path' => [
+                'required' => true,
+                'validate_callback' => function ($value) {
+                    return is_string($value) && $value !== '';
+                }
+            ]
+        ]
+    ]);
+});
+
+function gpt_rest_permission_check_gpt_admin($request)
+{
+    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    $role = gpt_get_role_for_key($key);
+    return $role === 'gpt_admin';
+}
+
+function gpt_get_plugin_dir()
+{
+    return dirname(__FILE__);
+}
+
+function gpt_sanitize_plugin_path($path)
+{
+    $plugin_dir = realpath(gpt_get_plugin_dir());
+    $full_path = realpath($plugin_dir . '/' . ltrim($path, '/\\'));
+    if ($full_path && strpos($full_path, $plugin_dir) === 0) {
+        return $full_path;
+    }
+    return false;
+}
+
+function gpt_file_read_endpoint($request)
+{
+    $path = $request->get_param('path');
+    $file = gpt_sanitize_plugin_path($path);
+    if (!$file || !file_exists($file) || !is_file($file)) {
+        return gpt_error_response('File not found or access denied', 404);
+    }
+    $contents = file_get_contents($file);
+    if ($contents === false) {
+        return gpt_error_response('Failed to read file', 500);
+    }
+    return [
+        'path' => $path,
+        'content' => $contents
+    ];
+}
+
+function gpt_file_write_endpoint($request)
+{
+    $params = $request->get_json_params();
+    $path = $params['path'] ?? '';
+    $content = $params['content'] ?? '';
+    $file = gpt_sanitize_plugin_path($path);
+    if (!$file) {
+        return gpt_error_response('Invalid file path', 400);
+    }
+    if (file_exists($file) && !is_writable($file)) {
+        return gpt_error_response('File is not writable', 403);
+    }
+    $dir = dirname($file);
+    if (!is_dir($dir)) {
+        return gpt_error_response('Directory does not exist', 400);
+    }
+    $result = file_put_contents($file, $content);
+    if ($result === false) {
+        return gpt_error_response('Failed to write file', 500);
+    }
+    return [
+        'path' => $path,
+        'bytes_written' => $result
+    ];
+}
+
+function gpt_dir_create_endpoint($request)
+{
+    $params = $request->get_json_params();
+    $path = $params['path'] ?? '';
+    $dir = gpt_sanitize_plugin_path($path);
+    if (!$dir) {
+        return gpt_error_response('Invalid directory path', 400);
+    }
+    if (file_exists($dir)) {
+        return gpt_error_response('Directory already exists', 409);
+    }
+    if (!mkdir($dir, 0755, true)) {
+        return gpt_error_response('Failed to create directory', 500);
+    }
+    return [
+        'path' => $path,
+        'created' => true
+    ];
+}
+
+function gpt_file_list_endpoint($request)
+{
+    $path = $request->get_param('path') ?: '';
+    $dir = gpt_sanitize_plugin_path($path);
+    if (!$dir || !is_dir($dir)) {
+        return gpt_error_response('Directory not found or access denied', 404);
+    }
+    $result = gpt_list_dir_recursive($dir, $dir);
+    return [
+        'path' => $path,
+        'files' => $result
+    ];
+}
+
+function gpt_list_dir_recursive($base, $dir)
+{
+    $items = scandir($dir);
+    $result = [];
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..')
+            continue;
+        $full = $dir . DIRECTORY_SEPARATOR . $item;
+        $rel = ltrim(str_replace($base, '', $full), '/\\');
+        if (is_dir($full)) {
+            $result[] = [
+                'type' => 'dir',
+                'name' => $item,
+                'path' => $rel,
+                'children' => gpt_list_dir_recursive($base, $full)
+            ];
+        } else {
+            $result[] = [
+                'type' => 'file',
+                'name' => $item,
+                'path' => $rel,
+                'size' => filesize($full)
+            ];
+        }
+    }
+    return $result;
+}
+
+function gpt_file_delete_endpoint($request)
+{
+    $path = $request->get_param('path');
+    $file = gpt_sanitize_plugin_path($path);
+    if (!$file || !file_exists($file)) {
+        return gpt_error_response('File or directory not found or access denied', 404);
+    }
+    if (is_dir($file)) {
+        $success = gpt_rmdir_recursive($file);
+        if (!$success) {
+            return gpt_error_response('Failed to delete directory', 500);
+        }
+        return [
+            'path' => $path,
+            'deleted' => true,
+            'type' => 'dir'
+        ];
+    } else {
+        if (!is_writable($file)) {
+            return gpt_error_response('File is not writable', 403);
+        }
+        if (!unlink($file)) {
+            return gpt_error_response('Failed to delete file', 500);
+        }
+        return [
+            'path' => $path,
+            'deleted' => true,
+            'type' => 'file'
+        ];
+    }
+}
+
+function gpt_rmdir_recursive($dir)
+{
+    if (!is_dir($dir))
+        return false;
+    $items = scandir($dir);
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..')
+            continue;
+        $path = $dir . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($path)) {
+            gpt_rmdir_recursive($path);
+        } else {
+            unlink($path);
+        }
+    }
+    return rmdir($dir);
+}

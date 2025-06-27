@@ -1,16 +1,22 @@
-# GPT-4-WP-Plugin v1.2
+# GPT-4-WP-Plugin v2.0
 
 A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment.
 
 ## Features
+- **Pre-configured GPTs:** WebMaster.GPT, Linda.GPT (Webmaster); AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT (Publisher); CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT (Editor) — all auto-linked to all sites, no manual setup needed
+- **Site selection:** Admin UI lets you select the current site from a list of 15 supported domains; plugin configures itself dynamically
 - **API key management:** Create, assign roles, label, and revoke API keys via the admin UI
 - **Role-based access control:** Three roles (Webmaster, Publisher, Editor) with distinct capabilities
 - **REST API endpoints:**
   - Create and edit posts
   - Upload media
+  - **Full plugin file management for gpt_admin (WebMaster.GPT):**
+    - List, read, write, create, and delete files/directories within the plugin folder (for diagnostics, troubleshooting, and advanced support)
 - **Dynamic OpenAPI 3.0 schema:** `/wp-json/gpt/v1/openapi`
 - **Dynamic ai-plugin.json endpoint:** `/wp-json/gpt/v1/ai-plugin.json`
 - **Admin UI includes:**
+  - Pre-configured GPTs table (read-only)
+  - Site selection dropdown (dynamic config)
   - API key management (generate, list, revoke, assign, label)
   - Site ping test (both GPT→WordPress and WordPress→GPT)
   - REST endpoint diagnostics and status
@@ -20,9 +26,9 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 
 ## Quick Start
 
-1. **Copy the file** `gpt-4-wp-plugin-v1.2.php` into your WordPress `/wp-content/plugins/` directory.
+1. **Copy the file** `gpt-4-wp-plugin-v2.0.php` into your WordPress `/wp-content/plugins/` directory.
 2. **Activate the plugin** in the WordPress admin (Plugins > Installed Plugins).
-3. **Go to Tools > GPT API Keys** in the WordPress admin to generate an API key. Assign a role (Webmaster, Publisher, Editor) and optional label.
+3. **Go to Tools > GPT API Keys** in the WordPress admin to select your site and view pre-configured GPTs. Generate additional API keys as needed.
 4. **Use the API key** as the `gpt-api-key` header in your HTTP requests or GPT/ChatGPT plugin configuration.
 5. **Connect GPT/ChatGPT** by providing the dynamic manifest URL: `https://your-site.com/wp-json/gpt/v1/ai-plugin.json`.
 6. **Test endpoints** using tools like Postman, curl, or directly from your GPT/ChatGPT plugin.
@@ -30,7 +36,9 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 ---
 
 ## Admin UI
-- **API Key Management:** Generate, label, assign, and revoke API keys for GPT agents/clients.
+- **Site Selection:** Choose the current site from a dropdown; plugin configures endpoints and settings dynamically.
+- **Pre-configured GPTs Table:** View all built-in GPTs and their roles (auto-linked to all sites).
+- **API Key Management:** Generate, label, assign, and revoke API keys for additional GPT agents/clients.
 - **Site Ping Test:**
   - **WordPress → GPT:** Ping button in admin UI tests outbound connectivity to the REST API.
   - **GPT → WordPress:** Use the GET `/wp-json/gpt/v1/post` endpoint from your agent to test inbound connectivity and API key validity.
@@ -153,6 +161,81 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 }
 ```
 
+### 5. **Plugin File Management (gpt_admin only)**
+> **Note:** These endpoints are only available to API keys with the `gpt_admin` role (e.g. WebMaster.GPT). All file/folder access is strictly limited to the plugin directory for security.
+
+- **List files/directories**
+  - **GET** `/wp-json/gpt/v1/ls?path=relative/path`
+  - **Description:** Recursively lists all files and directories under the given path (relative to the plugin root). If `path` is omitted, lists the plugin root.
+  - **Response:**
+```json
+{
+  "path": "",
+  "files": [
+    { "type": "file", "name": "README.md", "path": "README.md", "size": 1234 },
+    { "type": "dir", "name": "subdir", "path": "subdir", "children": [ ... ] }
+  ]
+}
+```
+
+- **Read file**
+  - **GET** `/wp-json/gpt/v1/file?path=relative/path/to/file.php`
+  - **Description:** Reads the contents of a file within the plugin directory.
+  - **Response:**
+```json
+{
+  "path": "gpt-4-wp-plugin-v2.0.php",
+  "content": "<?php ... ?>"
+}
+```
+
+- **Write file**
+  - **POST** `/wp-json/gpt/v1/file`
+  - **Body:**
+```json
+{
+  "path": "relative/path/to/file.php",
+  "content": "new file contents"
+}
+```
+  - **Description:** Creates or overwrites a file within the plugin directory.
+  - **Response:**
+```json
+{
+  "path": "relative/path/to/file.php",
+  "bytes_written": 123
+}
+```
+
+- **Delete file or directory**
+  - **DELETE** `/wp-json/gpt/v1/file?path=relative/path`
+  - **Description:** Deletes a file or directory (recursively for directories) within the plugin directory.
+  - **Response:**
+```json
+{
+  "path": "relative/path",
+  "deleted": true,
+  "type": "file" // or "dir"
+}
+```
+
+- **Create directory**
+  - **POST** `/wp-json/gpt/v1/dir`
+  - **Body:**
+```json
+{
+  "path": "relative/path/to/newdir"
+}
+```
+  - **Description:** Creates a new directory within the plugin directory.
+  - **Response:**
+```json
+{
+  "path": "relative/path/to/newdir",
+  "created": true
+}
+```
+
 ---
 
 ## OpenAPI & Manifest
@@ -162,7 +245,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 ---
 
 ## Role Capabilities
-- **Webmaster:** Full access to all endpoints and actions
+- **Webmaster:** Full access to all endpoints and actions (including plugin file management)
 - **Publisher:** Can create, edit, and publish posts/media
 - **Editor:** Can create and edit drafts, upload media (no publishing)
 
@@ -172,14 +255,19 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 - All endpoints require a valid API key with an assigned role
 - Role-based permission checks for every action
 - API keys are never exposed in logs or responses
+- Pre-configured GPTs are always available and cannot be removed (for security and simplicity)
+- **File management endpoints are strictly limited to the plugin directory and only available to gpt_admin**
 
 ---
 
 ## Troubleshooting & Diagnostics
 - Use the admin UI (Tools > GPT API Keys) for:
+  - Site selection and dynamic config
+  - Pre-configured GPTs table
   - API key management
   - Site ping test (both directions)
   - REST endpoint diagnostics and error logs
+- Use the plugin file management endpoints for advanced diagnostics, troubleshooting, and self-repair (gpt_admin only).
 - If you encounter errors, ensure the plugin is activated and you are using a valid API key.
 - Use the dynamic manifest and OpenAPI endpoints—do not use or create static ai-plugin.json or openapi.yaml files.
 - For debugging, enable WordPress debug mode or check your server logs.
@@ -187,7 +275,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 ---
 
 ## Development
-- All logic is in `gpt-4-wp-plugin-v1.2.php`
+- All logic is in `gpt-4-wp-plugin-v2.0.php`
 - No external dependencies
 - Dynamic ai-plugin.json and OpenAPI endpoints for easy multi-site deployment
 
