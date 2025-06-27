@@ -290,6 +290,27 @@ function gpt_api_keys_page()
             <input type="text" name="gpt_label" id="gpt_label" placeholder="e.g. GPT-4 Client" style="min-width:200px;">
             <button type="submit" name="gpt_generate_key" class="button button-primary">Generate API Key</button>
         </form>
+        <!-- Capabilities display for selected role -->
+        <div id="gpt-role-capabilities" style="margin-top:10px;"></div>
+        <script>
+            // --- JS: Show capabilities for selected role ---
+            document.addEventListener('DOMContentLoaded', function () {
+                var roleSelect = document.getElementById('gpt_role');
+                var capDiv = document.getElementById('gpt-role-capabilities');
+                var roleCaps = {
+                    'gpt_webmaster': ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts'],
+                    'gpt_publisher': ['read', 'edit_posts', 'publish_posts', 'upload_files', 'edit_others_posts', 'delete_posts'],
+                    'gpt_editor': ['read', 'edit_posts', 'upload_files']
+                };
+                function updateCaps() {
+                    var role = roleSelect.value;
+                    var caps = roleCaps[role] || [];
+                    capDiv.innerHTML = '<strong>Capabilities for ' + role + ':</strong> ' + caps.join(', ');
+                }
+                roleSelect.addEventListener('change', updateCaps);
+                updateCaps();
+            });
+        </script>
         <h2>Existing API Keys</h2>
         <table class="widefat">
             <thead>
