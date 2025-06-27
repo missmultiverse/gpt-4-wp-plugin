@@ -116,6 +116,12 @@ function gpt_api_keys_page()
         'gpt_publisher' => 'Publisher',
         'gpt_editor' => 'Editor',
     ];
+    $role_caps = [
+        'gpt_admin' => ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts', 'gpt_manage_files'],
+        'gpt_webmaster' => ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts'],
+        'gpt_publisher' => ['read', 'edit_posts', 'publish_posts', 'upload_files', 'edit_others_posts', 'delete_posts'],
+        'gpt_editor' => ['read', 'edit_posts', 'upload_files'],
+    ];
     $pre_gpts = gpt_get_preconfigured_gpts();
     $sites = gpt_get_sites_list();
     // --- Handle site selection (single handler, DRY) ---
@@ -125,6 +131,7 @@ function gpt_api_keys_page()
         echo '<div class="updated"><p>Site selected: <strong>' . esc_html($selected_site) . '</strong></p></div>';
     }
     $selected_site = gpt_get_selected_site();
+    $site_url = 'https://' . $selected_site;
     // --- UI: Site selection dropdown ---
     echo '<form method="post" style="margin-bottom:20px;">';
     echo '<label for="gpt_selected_site"><strong>Select Site:</strong></label> ';
@@ -136,14 +143,43 @@ function gpt_api_keys_page()
     echo '<button type="submit" class="button">Apply</button>';
     echo '</form>';
     echo '<p><strong>Current Site:</strong> ' . esc_html($selected_site) . '</p>';
+    // --- Relevant Links for Selected Site ---
+    echo '<div style="margin-bottom:20px;padding:10px;background:#f8f8f8;border:1px solid #eee;border-radius:4px;">';
+    echo '<strong>Quick Links for ' . esc_html($selected_site) . ':</strong><ul style="margin:0 0 0 20px;">';
+    echo '<li>OpenAPI Schema Endpoint: <a href="' . esc_url($site_url . '/wp-json/gpt/v1/openapi') . '" target="_blank">' . esc_html($site_url . '/wp-json/gpt/v1/openapi') . '</a></li>';
+    echo '<li>ai-plugin.json Manifest: <a href="' . esc_url($site_url . '/wp-json/gpt/v1/ai-plugin.json') . '" target="_blank">' . esc_html($site_url . '/wp-json/gpt/v1/ai-plugin.json') . '</a></li>';
+    echo '<li>Create Post Endpoint: <a href="' . esc_url($site_url . '/wp-json/gpt/v1/post') . '" target="_blank">' . esc_html($site_url . '/wp-json/gpt/v1/post') . '</a></li>';
+    echo '<li>Media Upload Endpoint: <a href="' . esc_url($site_url . '/wp-json/gpt/v1/media') . '" target="_blank">' . esc_html($site_url . '/wp-json/gpt/v1/media') . '</a></li>';
+    echo '<li>Ping Test Endpoint: <a href="' . esc_url($site_url . '/wp-json/gpt/v1/post') . '" target="_blank">' . esc_html($site_url . '/wp-json/gpt/v1/post') . '</a></li>';
+    echo '</ul></div>';
+    // --- Capabilities Box (4 columns) ---
+    echo '<div style="display:flex;gap:10px;margin-bottom:20px;">';
+    foreach ($roles as $slug => $label) {
+        echo '<div style="flex:1;padding:10px;background:#f4f4f4;border:1px solid #ddd;border-radius:4px;min-width:180px;">';
+        echo '<strong>' . esc_html($label) . '</strong><ul style="margin:8px 0 0 18px;">';
+        foreach ($role_caps[$slug] as $cap) {
+            echo '<li>' . esc_html($cap) . '</li>';
+        }
+        echo '</ul></div>';
+    }
+    echo '</div>';
     // --- UI: Pre-configured GPTs table ---
     echo '<h2>Pre-configured GPTs (Auto-linked to all sites)</h2>';
-    echo '<table class="widefat"><thead><tr><th>Label</th><th>Role</th><th>Site Access</th></tr></thead><tbody>';
+    echo '<table class="widefat"><thead><tr><th>Label</th><th>Role</th><th>API Key</th></tr></thead><tbody>';
+    $all_keys = get_option('gpt_api_keys', []);
     foreach ($pre_gpts as $gpt) {
+        $api_key = '';
+        // Find the API key for this GPT by label (case-insensitive match)
+        foreach ($all_keys as $key => $info) {
+            if (isset($info['label']) && strtolower($info['label']) === strtolower($gpt['label'])) {
+                $api_key = $key;
+                break;
+            }
+        }
         echo '<tr>';
         echo '<td>' . esc_html($gpt['label']) . '</td>';
         echo '<td>' . esc_html($roles[$gpt['role']] ?? $gpt['role']) . '</td>';
-        echo '<td>All Sites</td>';
+        echo '<td>' . ($api_key ? '<code>' . esc_html($api_key) . '</code>' : '<span style="color:#888;">(not generated)</span>') . '</td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
@@ -393,7 +429,7 @@ function gpt_api_keys_page()
                 <tr>
                     <th>Label</th>
                     <th>Role</th>
-                    <th>Site Access</th>
+                    <th>API Key</th>
                 </tr>
             </thead>
             <tbody>
@@ -401,7 +437,7 @@ function gpt_api_keys_page()
                     <tr>
                         <td><?php echo esc_html($gpt['label']); ?></td>
                         <td><?php echo esc_html($roles[$gpt['role']] ?? $gpt['role']); ?></td>
-                        <td>All Sites</td>
+                        <td><?php echo esc_html($gpt['api_key'] ?? ''); ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
