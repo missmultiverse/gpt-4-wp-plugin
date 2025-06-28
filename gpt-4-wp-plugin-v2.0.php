@@ -1053,6 +1053,22 @@ function gpt_upload_media_endpoint($request)
         if (is_wp_error($response)) {
             return gpt_error_response('Unable to download image: ' . $response->get_error_message(), 400);
         }
+        $header_type = wp_remote_retrieve_header($response, 'content-type');
+        if ($header_type) {
+            $header_type = explode(';', $header_type)[0];
+            $header_type = trim(strtolower($header_type));
+            if (!in_array($header_type, $allowed_mimes, true)) {
+                return gpt_error_response('Invalid content type.', 400);
+            }
+        }
+        $header_length = wp_remote_retrieve_header($response, 'content-length');
+        $max_size = wp_max_upload_size();
+        if ($header_length && intval($header_length) > $max_size) {
+            return gpt_error_response(
+                'File exceeds the maximum upload size of ' . size_format($max_size),
+                400
+            );
+        }
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
             return gpt_error_response('Downloaded image is empty.', 400);
