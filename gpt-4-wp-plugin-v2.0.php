@@ -574,6 +574,40 @@ function gpt_generate_slug($slug, $title, $post_id, $status)
     return wp_unique_post_slug($base, $post_id, $status, 'post', 0);
 }
 
+// --- Helper: Ensure post author matches expected user ---
+/**
+ * Verify that a post's author matches the provided user ID.
+ * Attempts a correction if mismatched.
+ *
+ * @param int $post_id  The ID of the post to verify.
+ * @param int $user_id  The expected author user ID.
+ * @return true|WP_Error True on success or WP_Error on failure.
+ */
+function gpt_ensure_post_author($post_id, $user_id)
+{
+    $post = get_post($post_id);
+    if (!$post) {
+        return gpt_error_response('Failed to retrieve post', 500);
+    }
+
+    if ((int) $post->post_author !== (int) $user_id) {
+        $update = wp_update_post([
+            'ID'         => $post_id,
+            'post_author'=> $user_id
+        ], true);
+        if (is_wp_error($update)) {
+            return gpt_error_response('Failed to correct post author', 500);
+        }
+
+        $post = get_post($post_id);
+        if (!$post || (int) $post->post_author !== (int) $user_id) {
+            return gpt_error_response('Post author mismatch after correction', 500);
+        }
+    }
+
+    return true;
+}
+
 
 // --- Pre-configured GPTs and Sites ---
 function gpt_get_preconfigured_gpts()
@@ -806,6 +840,12 @@ function gpt_create_post_endpoint($request)
         return $post_id;
     }
 
+    // Verify the post author matches the GPT user
+    $author_check = gpt_ensure_post_author($post_id, $user_id);
+    if (is_wp_error($author_check)) {
+        return $author_check;
+    }
+
     // --- Debugging Step: Log successful post creation
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         error_log('Post created successfully with ID: ' . $post_id);
@@ -980,6 +1020,12 @@ function gpt_edit_post_endpoint($request)
             error_log("Error updating post: " . $result->get_error_message());
         }
         return gpt_error_response('Failed to update post', 500);
+    }
+
+    // Verify the post author after update
+    $author_check = gpt_ensure_post_author($result, $update['post_author']);
+    if (is_wp_error($author_check)) {
+        return $author_check;
     }
 
 
