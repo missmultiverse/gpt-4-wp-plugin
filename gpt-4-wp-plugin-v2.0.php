@@ -924,7 +924,10 @@ function gpt_edit_post_endpoint($request)
     // If the provided post_date is in the future, set post_status to 'future'
     if (!empty($update['post_date'])) {
         $timestamp = strtotime($update['post_date']);
-        if ($timestamp !== false && $timestamp > current_time('timestamp')) {
+        if ($timestamp === false) {
+            return gpt_error_response('Invalid post_date', 400);
+        }
+        if ($timestamp > current_time('timestamp')) {
             $update['post_status'] = 'future';
         }
     }
