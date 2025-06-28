@@ -826,9 +826,21 @@ function gpt_create_post_endpoint($request)
         }
     }
     if (!empty($params['featured_image'])) {
-        $thumb_result = set_post_thumbnail($post_id, intval($params['featured_image']));
+        $featured_raw = $params['featured_image'];
+        if (!is_numeric($featured_raw)) {
+            return gpt_error_response('featured_image must be a numeric ID', 400);
+        }
+        $featured_id = intval($featured_raw);
+        $attachment = get_post($featured_id);
+        if (!$attachment || $attachment->post_type !== 'attachment' || !wp_attachment_is_image($featured_id)) {
+            return gpt_error_response('featured_image must be an image attachment ID', 400);
+        }
+        $thumb_result = set_post_thumbnail($post_id, $featured_id);
         if (is_wp_error($thumb_result)) {
             return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
+        if (intval(get_post_thumbnail_id($post_id)) !== $featured_id) {
+            return gpt_error_response('Failed to set featured image', 500);
         }
     }
     $meta_response = [];
@@ -946,9 +958,21 @@ function gpt_edit_post_endpoint($request)
 
     // Featured image
     if (!empty($params['featured_image'])) {
-        $thumb_result = set_post_thumbnail($result, intval($params['featured_image']));
+        $featured_raw = $params['featured_image'];
+        if (!is_numeric($featured_raw)) {
+            return gpt_error_response('featured_image must be a numeric ID', 400);
+        }
+        $featured_id = intval($featured_raw);
+        $attachment = get_post($featured_id);
+        if (!$attachment || $attachment->post_type !== 'attachment' || !wp_attachment_is_image($featured_id)) {
+            return gpt_error_response('featured_image must be an image attachment ID', 400);
+        }
+        $thumb_result = set_post_thumbnail($result, $featured_id);
         if (is_wp_error($thumb_result)) {
             return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
+        if (intval(get_post_thumbnail_id($result)) !== $featured_id) {
+            return gpt_error_response('Failed to set featured image', 500);
         }
     }
 
@@ -1160,7 +1184,10 @@ function gpt_openapi_schema_handler()
                         'excerpt' => ['type' => 'string'],
                         'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
                         'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
-                        'featured_image' => ['type' => 'integer'],
+                        'featured_image' => [
+                            'type' => 'integer',
+                            'description' => 'ID of an image attachment to use as the featured image'
+                        ],
                         'format' => ['type' => 'string'],
                         'slug' => ['type' => 'string'],
                         'author' => ['type' => 'integer'],
