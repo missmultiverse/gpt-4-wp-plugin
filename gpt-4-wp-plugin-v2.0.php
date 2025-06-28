@@ -689,6 +689,13 @@ function gpt_create_post_endpoint($request)
     }
     $params = $request->get_json_params();
 
+    if (empty($params['title'])) {
+        return gpt_error_response('Title is required', 400);
+    }
+    if (empty($params['content'])) {
+        return gpt_error_response('Content is required', 400);
+    }
+
     // Accept both "gpt-api-key" and "Authorization: Bearer" headers
     $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
 
@@ -717,10 +724,20 @@ function gpt_create_post_endpoint($request)
     // Now proceed to create the post
     $post_date = isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '';
 
+    $allowed_statuses = ['publish', 'draft', 'pending', 'private', 'future'];
+    if (isset($params['post_status'])) {
+        $requested_status = sanitize_key($params['post_status']);
+        if (!in_array($requested_status, $allowed_statuses)) {
+            return gpt_error_response('Invalid post_status', 400);
+        }
+    } else {
+        $requested_status = ($role === 'gpt_editor') ? 'draft' : 'publish';
+    }
+
     $post_data = [
-        'post_title'   => sanitize_text_field($params['title'] ?? ''),
-        'post_content' => wp_kses_post($params['content'] ?? ''),
-        'post_status'  => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($role === 'gpt_editor') ? 'draft' : 'publish'),
+        'post_title'   => sanitize_text_field($params['title']),
+        'post_content' => wp_kses_post($params['content']),
+        'post_status'  => $requested_status,
         'post_type'    => 'post',
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
         'post_format'  => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
@@ -731,7 +748,10 @@ function gpt_create_post_endpoint($request)
 
     if (!empty($post_date)) {
         $timestamp = strtotime($post_date);
-        if ($timestamp && $timestamp > current_time('timestamp')) {
+        if ($timestamp === false) {
+            return gpt_error_response('Invalid post_date', 400);
+        }
+        if ($timestamp > current_time('timestamp') && user_can($user_id, 'publish_posts')) {
             $post_data['post_status'] = 'future';
         }
     }
@@ -760,21 +780,64 @@ function gpt_create_post_endpoint($request)
 
     // Additional handling for categories, tags, featured image, and metadata
     if (!empty($params['categories'])) {
-        wp_set_post_categories($post_id, array_map('intval', (array) $params['categories']));
+        $categories = [];
+        foreach ((array) $params['categories'] as $cat) {
+            if (is_numeric($cat)) {
+                $cat_id = intval($cat);
+                if (!term_exists($cat_id, 'category')) {
+                    return gpt_error_response('Invalid category ID: ' . $cat_id, 400);
+                }
+                $categories[] = $cat_id;
+            } else {
+                $cat_name = sanitize_text_field($cat);
+                $term = term_exists($cat_name, 'category');
+                if (!$term) {
+                    return gpt_error_response('Invalid category: ' . $cat_name, 400);
+                }
+                $categories[] = is_array($term) ? intval($term['term_id']) : intval($term);
+            }
+        }
+        wp_set_post_categories($post_id, $categories);
     }
     if (!empty($params['tags'])) {
-        wp_set_post_tags($post_id, (array) $params['tags']);
+        $tags = [];
+        foreach ((array) $params['tags'] as $tag) {
+            if (is_numeric($tag)) {
+                $tag_id = intval($tag);
+                if (!term_exists($tag_id, 'post_tag')) {
+                    return gpt_error_response('Invalid tag ID: ' . $tag_id, 400);
+                }
+                $tags[] = $tag_id;
+            } else {
+                $tag_name = sanitize_text_field($tag);
+                $term = term_exists($tag_name, 'post_tag');
+                if (!$term) {
+                    return gpt_error_response('Invalid tag: ' . $tag_name, 400);
+                }
+                $tags[] = is_array($term) ? intval($term['term_id']) : intval($term);
+            }
+        }
+        wp_set_post_tags($post_id, $tags);
     }
     if (!empty($params['featured_image'])) {
         set_post_thumbnail($post_id, intval($params['featured_image']));
     }
+    $meta_response = [];
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
-            update_post_meta($post_id, sanitize_key($key), sanitize_text_field($value));
+            $clean_key = sanitize_key($key);
+            $clean_value = sanitize_text_field($value);
+            update_post_meta($post_id, $clean_key, $clean_value);
+            $meta_response[$clean_key] = $clean_value;
         }
     }
 
-    return ['post_id' => $post_id];
+    return new WP_REST_Response([
+        'post_id' => $post_id,
+        'post_status' => get_post_status($post_id),
+        'author' => $user_id,
+        'meta' => $meta_response
+    ], 201);
 }
 
 // --- END --- REST: Create Post ---
