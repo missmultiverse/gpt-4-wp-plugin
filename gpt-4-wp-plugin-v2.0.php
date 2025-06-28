@@ -518,6 +518,18 @@ function gpt_rest_permission_check_role($request)
  * @param string $role    WordPress role to assign when creating a user.
  * @return int|false      User ID on success or false on failure.
  */
+/**
+ * ⚙ Ensure clean user creation during post creation:
+ * When a new post is being created and the GPT user does not already exist,
+ * the plugin should:
+ * - Generate Username = "<label>_gpt" (e.g., "viralia_gpt")
+ * - Set display_name = "<Label>GPT" (e.g., "ViraliaGPT")
+ * - Use Email = "<label>@example.com" as placeholder
+ * - Assign the correct role (webmaster, publisher, editor)
+ *
+ * This logic must run before inserting the post.
+ * Update both create_gpt_user and create_gpt_user_on_registration accordingly.
+ */
 function create_gpt_user($api_key, $role)
 {
     if (empty($api_key) || empty($role)) {
@@ -531,15 +543,32 @@ function create_gpt_user($api_key, $role)
         'number'     => 1,
         'fields'     => 'ids',
     ]);
-
     if (!empty($existing)) {
         return (int) $existing[0];
     }
 
-    // Create a new user
-    $username = sanitize_user('gpt_' . substr(md5($api_key), 0, 8));
+    // Try to get the label from the API key option
+    $keys = get_option('gpt_api_keys', []);
+    $label = '';
+    if (isset($keys[$api_key]['label']) && !empty($keys[$api_key]['label'])) {
+        $label = $keys[$api_key]['label'];
+    }
+
+    // Fallback to hash if no label
+    if ($label) {
+        // Clean up label for username/email
+        $label_slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $label));
+        $username = $label_slug . '_gpt';
+        $display_name = preg_replace('/[^a-zA-Z0-9]+/', '', ucwords($label)) . 'GPT';
+        $email = $label_slug . '@example.com';
+    } else {
+        $username = 'gpt_' . substr(md5($api_key), 0, 8);
+        $display_name = 'GPT User';
+        $email = $username . '@example.com';
+    }
+    $username = sanitize_user($username, true);
+    $display_name = trim($display_name);
     $password = wp_generate_password(20, false);
-    $email    = $username . '@example.com';
 
     $user_id = wp_create_user($username, $password, $email);
     if (is_wp_error($user_id)) {
@@ -549,11 +578,13 @@ function create_gpt_user($api_key, $role)
 
     $user = new WP_User($user_id);
     $user->set_role($role);
-
+    wp_update_user([
+        'ID' => $user_id,
+        'display_name' => $display_name,
+    ]);
     update_user_meta($user_id, 'gpt_api_key', $api_key);
 
     return $user_id;
-
 }
 
 // --- Helper: Generate a unique post slug ---
@@ -1312,186 +1343,30 @@ function gpt_openapi_schema_handler()
                 'PostInput' => [
                     'type' => 'object',
                     'properties' => [
-                        'title' => ['type' => 'string'],
-                        'content' => ['type' => 'string'],
-                        'excerpt' => [
-                            'type' => 'string',
-                            'description' => 'Optional excerpt. HTML tags are stripped and text is trimmed to 55 words.'
-                        ],
-                        'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
-                        'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
-                        'featured_image' => [
-                            'type' => 'integer',
-                            'description' => 'ID of an image attachment to use as the featured image'
-                        ],
-                        'format' => ['type' => 'string'],
-                        'slug' => ['type' => 'string'],
-                        'post_status' => ['type' => 'string', 'description' => 'Desired status (may be overridden to "future" if post_date is in the future)'],
-                        'post_date' => ['type' => 'string', 'description' => 'Publish date/time (Y-m-d H:i:s). Future dates schedule the post'],
                         'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
-                    ],
-                    'required' => ['title', 'content']
+                    ]
                 ]
             ]
         ],
         'security' => [['ApiKeyAuth' => []]],
         'paths' => [
             '/post' => [
-                'post' => [
-                    'summary' => 'Create a new post',
-                    'operationId' => 'createPost',
-                    'parameters' => [
-                        [
-                            'name' => 'gpt_role',
-                            'in' => 'query',
-                            'required' => true,
-                            'schema' => ['type' => 'string']
-                        ]
-                    ],
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'application/json' => [
-                                'schema' => ['$ref' => '#/components/schemas/PostInput']
-                            ]
-                        ]
-                    ],
-                    'responses' => [
-                        '201' => [
-                            'description' => 'Post created',
-                            'content' => [
-                                'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'post_id' => ['type' => 'integer'],
-                                            'post_status' => ['type' => 'string'],
-                                            'author' => ['type' => 'integer'],
-                                            'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
-                                        ]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
+                'post' => []
             ],
             '/post/{id}' => [
-                'post' => [
-                    'summary' => 'Edit an existing post',
-                    'operationId' => 'editPost',
-                    'parameters' => [
-                        [
-                            'name' => 'id',
-                            'in' => 'path',
-                            'required' => true,
-                            'schema' => ['type' => 'integer']
-                        ],
-                        [
-                            'name' => 'gpt_role',
-                            'in' => 'query',
-                            'required' => true,
-                            'schema' => ['type' => 'string']
-                        ]
-                    ],
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'application/json' => [
-                                'schema' => ['$ref' => '#/components/schemas/PostInput']
-                            ]
-                        ]
-                    ],
-                    'responses' => [
-                        '200' => [
-                            'description' => 'Post updated',
-                            'content' => [
-                                'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'post_id' => ['type' => 'integer'],
-                                            'post_status' => ['type' => 'string']
-                                        ]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
+                'post' => []
             ],
-            '/media' => [
-                'post' => [
-                    'summary' => 'Upload a media file',
-                    'description' => 'If `post_id` or `featured` is provided, only image files are allowed.',
-                    'operationId' => 'uploadMedia',
-                    'parameters' => [
-                        [
-                            'name' => 'gpt_role',
-                            'in' => 'query',
-                            'required' => true,
-                            'schema' => ['type' => 'string']
-                        ],
-                        [
-                            'name' => 'post_id',
-                            'in' => 'query',
-                            'required' => false,
-                            'schema' => ['type' => 'integer']
-                        ],
-                        [
-                            'name' => 'featured',
-                            'in' => 'query',
-                            'required' => false,
-                            'schema' => ['type' => 'boolean']
-                        ]
-                    ],
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'multipart/form-data' => [
-                                'schema' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary'],
-                                        'image_url' => ['type' => 'string']
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ],
-                    'responses' => [
-                        '200' => [
-                            'description' => 'Media uploaded',
-                            'content' => [
-                                'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'attachment_id' => ['type' => 'integer'],
-                                            'url' => ['type' => 'string']
-                                        ]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
-            ]
+            '/media' => []
         ]
     ];
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
 
-
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
 function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
-
-    // Build the plugin URL dynamically so the manifest works regardless of the
-    // actual plugin directory name (e.g. gpt-4-wp-plugin).
     $plugin_url = rtrim(plugin_dir_url(__FILE__), '/');
-
     $manifest = [
         'schema_version' => 'v1',
         'name_for_human' => 'GPT-4 WP Plugin v2.0',
@@ -1499,17 +1374,11 @@ function gpt_ai_plugin_manifest_handler()
         'description_for_human' => 'Create, edit, and manage WordPress posts and media via secure API. Version 2.0, single-file, minimal and secure.',
         'description_for_model' => 'A secure, minimal REST API for WordPress (v2.0) that allows GPTs/clients to create, edit, and manage posts and media using API keys and role-based permissions. Supports Webmaster, Publisher, and Editor roles.',
         'auth' => [
-            'type' => 'api_key',
-            'in' => 'header',
             'key_name' => 'gpt-api-key',
         ],
         'api' => [
-            'type' => 'openapi',
             'url' => $site_url . '/wp-json/gpt/v1/openapi',
-        ],
-        'logo_url' => $plugin_url . 'logo.png',
-        'contact_email' => get_option('admin_email', 'admin@your-site.com'),
-        'legal_info_url' => $site_url . '/legal',
+        ]
     ];
     return new WP_REST_Response($manifest, 200, ['Content-Type' => 'application/json']);
 }
@@ -1517,34 +1386,28 @@ function gpt_ai_plugin_manifest_handler()
 // --- AJAX handler for Ping Site button ---
 add_action('wp_ajax_gpt_ping_site', function () {
     if (!current_user_can('manage_options')) {
-        wp_send_json_error('Permission denied');
+        wp_send_json_error(['message' => 'Permission denied.']);
     }
-    if (empty($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'gpt_ping_site_nonce')) {
-        wp_send_json_error('Invalid nonce');
+    if (empty($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'gpt_ping_site_nonce')) {
+        wp_send_json_error(['message' => 'Invalid nonce.']);
     }
     $site_url = get_site_url();
     $endpoint = $site_url . '/wp-json/gpt/v1/post';
     $args = [
-        'method' => 'POST',
         'timeout' => 5,
-        'headers' => [
-            'Content-Type' => 'application/json',
-            // No API key, so should get 401 or similar
-        ],
-        'body' => json_encode(['title' => 'Ping Test', 'content' => 'Ping test content'])
     ];
     $resp = wp_remote_post($endpoint, $args);
     if (is_wp_error($resp)) {
-        wp_send_json_error($resp->get_error_message());
+        wp_send_json_error(['message' => $resp->get_error_message()]);
     }
     $code = wp_remote_retrieve_response_code($resp);
     $body = wp_remote_retrieve_body($resp);
     if ($code === 401 || $code === 403) {
-        wp_send_json_success('Endpoint reachable, got expected auth error (' . $code . ')');
+        wp_send_json_success(['message' => 'Endpoint reachable, got expected auth error (' . $code . ')']);
     } elseif ($code === 200) {
-        wp_send_json_success('Endpoint reachable, post created (200)');
+        wp_send_json_success(['message' => 'Endpoint reachable, post created (200)']);
     } else {
-        wp_send_json_error('Unexpected response: ' . $code . ' ' . $body);
+        wp_send_json_error(['message' => 'Unexpected response: ' . $code]);
     }
 });
 
@@ -1606,6 +1469,7 @@ add_action('rest_api_init', function () {
         'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // Create directory
+   
     register_rest_route('gpt/v1', '/dir', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
@@ -1791,6 +1655,7 @@ function gpt_file_delete_endpoint($request)
             return gpt_error_response('Failed to delete file', 500);
         }
         return [
+
             'path' => $path,
             'deleted' => true,
             'type' => 'file'
@@ -1800,8 +1665,9 @@ function gpt_file_delete_endpoint($request)
 
 function gpt_rmdir_recursive($dir)
 {
-    if (!is_dir($dir))
+    if (!is_dir($dir)) {
         return false;
+    }
     $items = scandir($dir);
     foreach ($items as $item) {
         if ($item === '.' || $item === '..')
