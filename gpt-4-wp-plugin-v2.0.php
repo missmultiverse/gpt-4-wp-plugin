@@ -982,6 +982,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Create a new post',
                     'operationId' => 'createPost',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -1015,6 +1023,12 @@ function gpt_openapi_schema_handler()
                             'in' => 'path',
                             'required' => true,
                             'schema' => ['type' => 'integer']
+                        ],
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
                         ]
                     ],
                     'requestBody' => [
@@ -1044,6 +1058,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Upload a media file',
                     'operationId' => 'uploadMedia',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -1051,7 +1073,8 @@ function gpt_openapi_schema_handler()
                                 'schema' => [
                                     'type' => 'object',
                                     'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary']
+                                        'file' => ['type' => 'string', 'format' => 'binary'],
+                                        'image_url' => ['type' => 'string']
                                     ]
                                 ]
                             ]
