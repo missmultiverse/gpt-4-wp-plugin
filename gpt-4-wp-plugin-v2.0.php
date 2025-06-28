@@ -475,6 +475,80 @@ function gpt_get_role_for_key($key)
 }
 
 
+// --- REST permission check based on provided GPT role ---
+function gpt_rest_permission_check_role($request)
+{
+    // Retrieve API key from custom header or Authorization Bearer token
+    $key = $request->get_header('gpt-api-key');
+    if (!$key) {
+        $auth = $request->get_header('authorization');
+        if (stripos($auth, 'Bearer ') === 0) {
+            $key = substr($auth, 7);
+        } else {
+            $key = $auth;
+        }
+    }
+
+    if (!$key) {
+        return new WP_Error('missing_api_key', 'API key is required', ['status' => 401]);
+    }
+
+    $role = gpt_get_role_for_key($key);
+    if (!$role) {
+        return new WP_Error('invalid_api_key', 'Invalid API key', ['status' => 403]);
+    }
+
+    $requested_role = $request->get_param('gpt_role');
+    if (!$requested_role) {
+        return new WP_Error('missing_role', 'gpt_role parameter is required', ['status' => 403]);
+    }
+
+    if ($requested_role !== $role) {
+        return new WP_Error('role_mismatch', 'gpt_role does not match API key role', ['status' => 403]);
+    }
+
+    return true;
+
+// --- Helper: Create or fetch user linked to API key ---
+function create_gpt_user($api_key, $role)
+{
+    if (empty($api_key) || empty($role)) {
+        return false;
+    }
+
+    // Look for existing user mapped to this API key
+    $existing = get_users([
+        'meta_key'   => 'gpt_api_key',
+        'meta_value' => $api_key,
+        'number'     => 1,
+        'fields'     => 'ids',
+    ]);
+
+    if (!empty($existing)) {
+        return (int) $existing[0];
+    }
+
+    // Create a new user
+    $username = sanitize_user('gpt_' . substr(md5($api_key), 0, 8));
+    $password = wp_generate_password(20, false);
+    $email    = $username . '@example.com';
+
+    $user_id = wp_create_user($username, $password, $email);
+    if (is_wp_error($user_id)) {
+        error_log('[GPT-4-WP-Plugin] Failed to create user: ' . $user_id->get_error_message());
+        return false;
+    }
+
+    $user = new WP_User($user_id);
+    $user->set_role($role);
+
+    update_user_meta($user_id, 'gpt_api_key', $api_key);
+
+    return $user_id;
+
+}
+
+
 // --- Pre-configured GPTs and Sites ---
 function gpt_get_preconfigured_gpts()
 {
@@ -611,13 +685,17 @@ function gpt_create_post_endpoint($request)
     }
     $params = $request->get_json_params();
 
+    // Accept both "gpt-api-key" and "Authorization: Bearer" headers
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+
+
     // --- Debugging Step: Log the start of the post creation process
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         error_log('Starting post creation');
     }
 
     // Get or create the user at this stage of post creation
-    $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role); // Create user if necessary
+    $user_id = create_gpt_user($api_key, $role); // Create user if necessary
 
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
@@ -752,8 +830,11 @@ function gpt_edit_post_endpoint($request)
         return gpt_error_response('Failed to update post', 500);
     }
 
-    // Get the updated post to check its status
+
+        /// Get the updated post to check its status
     $updated_post = get_post($result);
+
+    // --- Debugging Step: Log the updated post status
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         error_log("Updated post status: " . $updated_post->post_status);
     }
@@ -773,7 +854,7 @@ function gpt_edit_post_endpoint($request)
         ], 200);
     }
 
-    // Update categories
+    // Update categories, tags, featured image, and meta before returning
     if (!empty($params['categories'])) {
         wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
     }
@@ -789,7 +870,24 @@ function gpt_edit_post_endpoint($request)
         }
     }
 
-    return ['post_id' => $result];
+    // Get the updated post to check its final status
+    $updated_post = get_post($result);
+    error_log("Updated post status: " . $updated_post->post_status);
+
+    // Check if the post is published or not after all updates
+    if ($updated_post->post_status === 'publish') {
+        return new WP_REST_Response([
+            'post_id' => $result,
+            'status' => 'success',
+            'message' => 'Post successfully updated and published.'
+        ], 200);
+    }
+
+    return new WP_REST_Response([
+        'post_id' => $result,
+        'status' => 'pending',
+        'message' => 'Post updated, but pending approval for publication.'
+    ], 200);
 }
 
 
@@ -937,6 +1035,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Create a new post',
                     'operationId' => 'createPost',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -970,6 +1076,12 @@ function gpt_openapi_schema_handler()
                             'in' => 'path',
                             'required' => true,
                             'schema' => ['type' => 'integer']
+                        ],
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
                         ]
                     ],
                     'requestBody' => [
@@ -999,6 +1111,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Upload a media file',
                     'operationId' => 'uploadMedia',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -1006,7 +1126,8 @@ function gpt_openapi_schema_handler()
                                 'schema' => [
                                     'type' => 'object',
                                     'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary']
+                                        'file' => ['type' => 'string', 'format' => 'binary'],
+                                        'image_url' => ['type' => 'string']
                                     ]
                                 ]
                             ]
@@ -1040,7 +1161,9 @@ function gpt_openapi_schema_handler()
 function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
-    $plugin_url = $site_url . '/wp-content/plugins/gpt-4-wp-plugin-v1.2';
+    // Build the plugin URL dynamically so the manifest works regardless of the
+    // actual plugin directory name (e.g. gpt-4-wp-plugin-v2.0).
+    $plugin_url = plugin_dir_url(__FILE__);
     $manifest = [
         'schema_version' => 'v1',
         'name_for_human' => 'GPT-4 WP Plugin v2.0',
@@ -1056,7 +1179,7 @@ function gpt_ai_plugin_manifest_handler()
             'type' => 'openapi',
             'url' => $site_url . '/wp-json/gpt/v1/openapi',
         ],
-        'logo_url' => $plugin_url . '/logo.png',
+        'logo_url' => $plugin_url . 'logo.png',
         'contact_email' => get_option('admin_email', 'admin@your-site.com'),
         'legal_info_url' => $site_url . '/legal',
     ];
@@ -1138,9 +1261,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_read_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
@@ -1154,25 +1275,19 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_write_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // Create directory
     register_rest_route('gpt/v1', '/dir', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // List files/directories
     register_rest_route('gpt/v1', '/ls', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_list_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => false,
@@ -1186,9 +1301,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'DELETE',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_delete_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
