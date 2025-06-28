@@ -817,8 +817,9 @@ function gpt_create_post_endpoint($request)
         wp_set_post_categories($post_id, $categories);
     }
     if (!empty($params['tags'])) {
+        $sanitized_tags = array_map('sanitize_text_field', (array) $params['tags']);
         $tags = [];
-        foreach ((array) $params['tags'] as $tag) {
+        foreach ($sanitized_tags as $tag) {
             if (is_numeric($tag)) {
                 $tag_id = intval($tag);
                 if (!term_exists($tag_id, 'post_tag')) {
@@ -826,10 +827,9 @@ function gpt_create_post_endpoint($request)
                 }
                 $tags[] = $tag_id;
             } else {
-                $tag_name = sanitize_text_field($tag);
-                $term = term_exists($tag_name, 'post_tag');
+                $term = term_exists($tag, 'post_tag');
                 if (!$term) {
-                    return gpt_error_response('Invalid tag: ' . $tag_name, 400);
+                    return gpt_error_response('Invalid tag: ' . $tag, 400);
                 }
                 $tags[] = is_array($term) ? intval($term['term_id']) : intval($term);
             }
@@ -934,7 +934,8 @@ function gpt_edit_post_endpoint($request)
 
     // Apply tags
     if (!empty($params['tags'])) {
-        $tag_result = wp_set_post_tags($result, (array) $params['tags']);
+        $tags = array_map('sanitize_text_field', (array) $params['tags']);
+        $tag_result = wp_set_post_tags($result, $tags);
         if (is_wp_error($tag_result)) {
             return gpt_error_response($tag_result->get_error_message(), 400);
         }
