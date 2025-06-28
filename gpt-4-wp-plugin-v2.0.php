@@ -827,8 +827,9 @@ function gpt_create_post_endpoint($request)
     }
     if (!empty($params['featured_image'])) {
         $thumb_result = set_post_thumbnail($post_id, intval($params['featured_image']));
-        if (is_wp_error($thumb_result)) {
-            return gpt_error_response($thumb_result->get_error_message(), 400);
+        if ($thumb_result === false || is_wp_error($thumb_result)) {
+            $error_msg = is_wp_error($thumb_result) ? $thumb_result->get_error_message() : 'Failed to set featured image';
+            return gpt_error_response($error_msg, 400);
         }
     }
     $meta_response = [];
@@ -947,8 +948,9 @@ function gpt_edit_post_endpoint($request)
     // Featured image
     if (!empty($params['featured_image'])) {
         $thumb_result = set_post_thumbnail($result, intval($params['featured_image']));
-        if (is_wp_error($thumb_result)) {
-            return gpt_error_response($thumb_result->get_error_message(), 400);
+        if ($thumb_result === false || is_wp_error($thumb_result)) {
+            $error_msg = is_wp_error($thumb_result) ? $thumb_result->get_error_message() : 'Failed to set featured image';
+            return gpt_error_response($error_msg, 400);
         }
     }
 
