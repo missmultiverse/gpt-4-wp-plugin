@@ -556,6 +556,24 @@ function create_gpt_user($api_key, $role)
 
 }
 
+// --- Helper: Generate a unique post slug ---
+/**
+ * Generate a unique slug for a post.
+ *
+ * When no slug is provided the sanitized title will be used by default.
+ *
+ * @param string $slug    The slug provided in the request (may be empty).
+ * @param string $title   The post title used when slug is empty.
+ * @param int    $post_id Current post ID for uniqueness checks.
+ * @param string $status  Post status used by wp_unique_post_slug().
+ * @return string         A unique, sanitized post slug.
+ */
+function gpt_generate_slug($slug, $title, $post_id, $status)
+{
+    $base = sanitize_title($slug ?: $title);
+    return wp_unique_post_slug($base, $post_id, $status, 'post', 0);
+}
+
 
 // --- Pre-configured GPTs and Sites ---
 function gpt_get_preconfigured_gpts()
@@ -746,7 +764,8 @@ function gpt_create_post_endpoint($request)
         'post_type'    => 'post',
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
         'post_format'  => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
-        'post_name'    => isset($params['slug']) ? sanitize_title($params['slug']) : '',
+        // Slug defaults to being generated from the title when not provided
+        'post_name'    => gpt_generate_slug($params['slug'] ?? '', $params['title'], 0, $requested_status),
         'post_author'  => $user_id, // Set the author as the GPT user
         'post_date'    => $post_date,
     ];
@@ -924,7 +943,8 @@ function gpt_edit_post_endpoint($request)
         'post_content' => isset($params['content']) ? wp_kses_post($params['content']) : $post->post_content,
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : $post->post_excerpt,
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : $post->post_format,
-        'post_name' => isset($params['slug']) ? sanitize_title($params['slug']) : $post->post_name,
+        // Slug defaults to being generated from the title when not provided
+        'post_name' => gpt_generate_slug($params['slug'] ?? $post->post_name, $params['title'] ?? $post->post_title, $id, isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status),
         'post_author' => isset($params['author']) ? intval($params['author']) : $post->post_author,
         'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
