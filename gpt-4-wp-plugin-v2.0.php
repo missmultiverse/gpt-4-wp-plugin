@@ -801,7 +801,10 @@ function gpt_create_post_endpoint($request)
                 $categories[] = is_array($term) ? intval($term['term_id']) : intval($term);
             }
         }
-        wp_set_post_categories($post_id, $categories);
+        $cat_result = wp_set_post_categories($post_id, $categories);
+        if (is_wp_error($cat_result)) {
+            return gpt_error_response($cat_result->get_error_message(), 400);
+        }
     }
     if (!empty($params['tags'])) {
         $sanitized_tags = array_map('sanitize_text_field', (array) $params['tags']);
@@ -821,17 +824,26 @@ function gpt_create_post_endpoint($request)
                 $tags[] = is_array($term) ? intval($term['term_id']) : intval($term);
             }
         }
-        wp_set_post_tags($post_id, $tags);
+        $tag_result = wp_set_post_tags($post_id, $tags);
+        if (is_wp_error($tag_result)) {
+            return gpt_error_response($tag_result->get_error_message(), 400);
+        }
     }
     if (!empty($params['featured_image'])) {
-        set_post_thumbnail($post_id, intval($params['featured_image']));
+        $thumb_result = set_post_thumbnail($post_id, intval($params['featured_image']));
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
     }
     $meta_response = [];
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
             $clean_key = sanitize_key($key);
             $clean_value = sanitize_text_field($value);
-            update_post_meta($post_id, $clean_key, $clean_value);
+            $meta_result = update_post_meta($post_id, $clean_key, $clean_value);
+            if (is_wp_error($meta_result)) {
+                return gpt_error_response($meta_result->get_error_message(), 400);
+            }
             $meta_response[$clean_key] = $clean_value;
         }
     }
@@ -938,7 +950,10 @@ function gpt_edit_post_endpoint($request)
 
     // Featured image
     if (!empty($params['featured_image'])) {
-        set_post_thumbnail($result, intval($params['featured_image']));
+        $thumb_result = set_post_thumbnail($result, intval($params['featured_image']));
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
     }
 
     // Meta fields
