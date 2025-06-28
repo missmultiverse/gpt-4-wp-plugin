@@ -480,6 +480,15 @@ function gpt_get_role_for_key($key)
 
 
 // --- REST permission check based on provided GPT role ---
+/**
+ * Permission callback used by GPT REST endpoints.
+ *
+ * Validates the provided API key and ensures the requested role matches the
+ * role mapped to that key.
+ *
+ * @param WP_REST_Request $request Incoming REST request.
+ * @return true|WP_Error True on success or WP_Error on failure.
+ */
 function gpt_rest_permission_check_role($request)
 {
     // Retrieve API key from custom header or Authorization Bearer token
@@ -512,8 +521,16 @@ function gpt_rest_permission_check_role($request)
     }
 
     return true;
+}
 
 // --- Helper: Create or fetch user linked to API key ---
+/**
+ * Fetch an existing user associated with an API key or create one.
+ *
+ * @param string $api_key The API key presented by the client.
+ * @param string $role    WordPress role to assign when creating a user.
+ * @return int|false      User ID on success or false on failure.
+ */
 function create_gpt_user($api_key, $role)
 {
     if (empty($api_key) || empty($role)) {
