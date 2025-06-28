@@ -715,17 +715,26 @@ function gpt_create_post_endpoint($request)
     }
 
     // Now proceed to create the post
+    $post_date = isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '';
+
     $post_data = [
-        'post_title' => sanitize_text_field($params['title'] ?? ''),
+        'post_title'   => sanitize_text_field($params['title'] ?? ''),
         'post_content' => wp_kses_post($params['content'] ?? ''),
-        'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($role === 'gpt_editor') ? 'draft' : 'publish'),
-        'post_type' => 'post',
+        'post_status'  => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($role === 'gpt_editor') ? 'draft' : 'publish'),
+        'post_type'    => 'post',
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
-        'post_format' => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
-        'post_name' => isset($params['slug']) ? sanitize_title($params['slug']) : '',
-        'post_author' => $user_id, // Set the author as the GPT user
-        'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '',
+        'post_format'  => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
+        'post_name'    => isset($params['slug']) ? sanitize_title($params['slug']) : '',
+        'post_author'  => $user_id, // Set the author as the GPT user
+        'post_date'    => $post_date,
     ];
+
+    if (!empty($post_date)) {
+        $timestamp = strtotime($post_date);
+        if ($timestamp && $timestamp > current_time('timestamp')) {
+            $post_data['post_status'] = 'future';
+        }
+    }
 
     if ($role === 'gpt_editor') {
         $post_data['post_status'] = 'draft';
@@ -1025,8 +1034,8 @@ function gpt_openapi_schema_handler()
                         'format' => ['type' => 'string'],
                         'slug' => ['type' => 'string'],
                         'author' => ['type' => 'integer'],
-                        'post_status' => ['type' => 'string'],
-                        'post_date' => ['type' => 'string'],
+                        'post_status' => ['type' => 'string', 'description' => 'Desired status (may be overridden to "future" if post_date is in the future)'],
+                        'post_date' => ['type' => 'string', 'description' => 'Publish date/time (Y-m-d H:i:s). Future dates schedule the post'],
                         'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
                     ],
                     'required' => ['title', 'content']

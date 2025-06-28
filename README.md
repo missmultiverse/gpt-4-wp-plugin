@@ -114,6 +114,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
   }
 }
 ```
+If `post_date` is set to a future time, the plugin will schedule the post by automatically setting its status to `future`.
 - **Response (200):**
 ```json
 {
