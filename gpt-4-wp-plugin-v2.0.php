@@ -472,6 +472,44 @@ function gpt_get_role_for_key($key)
     return null;
 }
 
+// --- Helper: Create or fetch user linked to API key ---
+function create_gpt_user($api_key, $role)
+{
+    if (empty($api_key) || empty($role)) {
+        return false;
+    }
+
+    // Look for existing user mapped to this API key
+    $existing = get_users([
+        'meta_key'   => 'gpt_api_key',
+        'meta_value' => $api_key,
+        'number'     => 1,
+        'fields'     => 'ids',
+    ]);
+
+    if (!empty($existing)) {
+        return (int) $existing[0];
+    }
+
+    // Create a new user
+    $username = sanitize_user('gpt_' . substr(md5($api_key), 0, 8));
+    $password = wp_generate_password(20, false);
+    $email    = $username . '@example.com';
+
+    $user_id = wp_create_user($username, $password, $email);
+    if (is_wp_error($user_id)) {
+        error_log('[GPT-4-WP-Plugin] Failed to create user: ' . $user_id->get_error_message());
+        return false;
+    }
+
+    $user = new WP_User($user_id);
+    $user->set_role($role);
+
+    update_user_meta($user_id, 'gpt_api_key', $api_key);
+
+    return $user_id;
+}
+
 
 // --- Pre-configured GPTs and Sites ---
 function gpt_get_preconfigured_gpts()
@@ -607,15 +645,18 @@ function gpt_create_post_endpoint($request)
     }
     $params = $request->get_json_params();
 
+    // Accept both "gpt-api-key" and "Authorization: Bearer" headers
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+
     // --- Debugging Step: Log the start of the post creation process
-    error_log("Starting post creation for API key: " . $request->get_header('gpt-api-key'));
+    error_log('Starting post creation for API key: ' . $api_key);
 
     // Get or create the user at this stage of post creation
-    $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role); // Create user if necessary
+    $user_id = create_gpt_user($api_key, $role); // Create user if necessary
 
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
-        error_log("Failed to create or retrieve user for API key: " . $request->get_header('gpt-api-key'));
+        error_log('Failed to create or retrieve user for API key: ' . $api_key);
         return gpt_error_response('Failed to create user', 500);
     }
 
