@@ -724,26 +724,7 @@ function gpt_edit_post_endpoint($request)
         return gpt_error_response('Failed to update post', 500);
     }
 
-    // Get the updated post to check its status
-    $updated_post = get_post($result);
-    error_log("Updated post status: " . $updated_post->post_status);
-
-    // Check if the post is published or not
-    if ($updated_post->post_status === 'publish') {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'success',
-            'message' => 'Post successfully updated and published.'
-        ], 200);
-    } else {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'pending',
-            'message' => 'Post updated, but pending approval for publication.'
-        ], 200);
-    }
-
-    // Update categories
+    // Update categories, tags, featured image and meta before returning
     if (!empty($params['categories'])) {
         wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
     }
@@ -759,7 +740,24 @@ function gpt_edit_post_endpoint($request)
         }
     }
 
-    return ['post_id' => $result];
+    // Get the updated post to check its final status
+    $updated_post = get_post($result);
+    error_log("Updated post status: " . $updated_post->post_status);
+
+    // Check if the post is published or not after all updates
+    if ($updated_post->post_status === 'publish') {
+        return new WP_REST_Response([
+            'post_id' => $result,
+            'status' => 'success',
+            'message' => 'Post successfully updated and published.'
+        ], 200);
+    }
+
+    return new WP_REST_Response([
+        'post_id' => $result,
+        'status' => 'pending',
+        'message' => 'Post updated, but pending approval for publication.'
+    ], 200);
 }
 
 
