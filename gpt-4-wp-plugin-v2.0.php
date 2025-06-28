@@ -924,62 +924,46 @@ function gpt_edit_post_endpoint($request)
     }
 
 
-        /// Get the updated post to check its status
-    $updated_post = get_post($result);
-
-    // --- Debugging Step: Log the updated post status
-    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
-        error_log("Updated post status: " . $updated_post->post_status);
-    }
-
-    // Check if the post is published or not
-    if ($updated_post->post_status === 'publish') {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'success',
-            'message' => 'Post successfully updated and published.'
-        ], 200);
-    } else {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'pending',
-            'message' => 'Post updated, but pending approval for publication.'
-        ], 200);
-    }
-
-    // Update categories, tags, featured image, and meta before returning
+    // Apply categories
     if (!empty($params['categories'])) {
-        wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
-    }
-    if (!empty($params['tags'])) {
-        wp_set_post_tags($result, (array) $params['tags']);
-    }
-    if (!empty($params['featured_image'])) {
-        set_post_thumbnail($result, intval($params['featured_image']));
-    }
-    if (!empty($params['meta']) && is_array($params['meta'])) {
-        foreach ($params['meta'] as $key => $value) {
-            update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
+        $cat_result = wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
+        if (is_wp_error($cat_result)) {
+            return gpt_error_response($cat_result->get_error_message(), 400);
         }
     }
 
-    // Get the updated post to check its final status
-    $updated_post = get_post($result);
-    error_log("Updated post status: " . $updated_post->post_status);
+    // Apply tags
+    if (!empty($params['tags'])) {
+        $tag_result = wp_set_post_tags($result, (array) $params['tags']);
+        if (is_wp_error($tag_result)) {
+            return gpt_error_response($tag_result->get_error_message(), 400);
+        }
+    }
 
-    // Check if the post is published or not after all updates
-    if ($updated_post->post_status === 'publish') {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'success',
-            'message' => 'Post successfully updated and published.'
-        ], 200);
+    // Featured image
+    if (!empty($params['featured_image'])) {
+        set_post_thumbnail($result, intval($params['featured_image']));
+    }
+
+    // Meta fields
+    if (!empty($params['meta']) && is_array($params['meta'])) {
+        foreach ($params['meta'] as $key => $value) {
+            $meta_result = update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
+            if (is_wp_error($meta_result)) {
+                return gpt_error_response($meta_result->get_error_message(), 400);
+            }
+        }
+    }
+
+    // Fetch final status
+    $updated_post = get_post($result);
+    if (!$updated_post) {
+        return gpt_error_response('Failed to retrieve updated post', 500);
     }
 
     return new WP_REST_Response([
         'post_id' => $result,
-        'status' => 'pending',
-        'message' => 'Post updated, but pending approval for publication.'
+        'post_status' => $updated_post->post_status
     ], 200);
 }
 
