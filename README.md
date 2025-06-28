@@ -142,6 +142,14 @@ If `post_date` is set to a future time, the plugin will schedule the post by aut
   "content": "Updated content"
 }
 ```
+To reschedule an existing post, pass a new `post_date` value. If the supplied
+time is in the future the post will be scheduled automatically and its status
+set to `future`.
+```json
+{
+  "post_date": "2025-06-30 09:00:00"
+}
+```
 - **Response (200):**
 ```json
 {
