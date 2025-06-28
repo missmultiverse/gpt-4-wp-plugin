@@ -607,18 +607,6 @@ function gpt_set_selected_site($site)
     }
 }
 
-// --- Helper: Get current site config (for dynamic endpoint/settings adjustment) ---
-function gpt_get_current_site_config()
-{
-    $site = gpt_get_selected_site();
-    // You can expand this to return more config per site if needed
-    return [
-        'site' => $site,
-        'api_base' => 'https://' . $site . '/wp-json/gpt/v1',
-    ];
-}
-
-
 // --- REST API Endpoints ---
 add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/post', [
@@ -1402,13 +1390,6 @@ add_action('rest_api_init', function () {
         ]
     ]);
 });
-
-function gpt_rest_permission_check_gpt_admin($request)
-{
-    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
-    $role = gpt_get_role_for_key($key);
-    return $role === 'gpt_admin';
-}
 
 function gpt_get_plugin_dir()
 {
