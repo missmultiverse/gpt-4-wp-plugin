@@ -636,6 +636,13 @@ add_action('rest_api_init', function () {
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_upload_media_endpoint'),
         'permission_callback' => 'gpt_rest_permission_check_role',
+        'args' => [
+            'post_id' => [
+                'validate_callback' => function ($value) {
+                    return is_numeric($value);
+                },
+            ],
+        ],
     ]);
     register_rest_route('gpt/v1', '/openapi', [
         'methods' => 'GET',
@@ -976,6 +983,14 @@ function gpt_upload_media_endpoint($request)
         return gpt_error_response('Invalid role', 403);
     }
 
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    $user_id = create_gpt_user($api_key, $role);
+    if (!$user_id || !user_can($user_id, 'upload_files')) {
+        return gpt_error_response('User cannot upload files', 403);
+    }
+
+    $post_id = $request->get_param('post_id');
+
     $uploads = wp_upload_dir();
     if (!empty($uploads['error']) || !is_writable($uploads['path'])) {
         return gpt_error_response('Upload directory is not writable.', 500);
@@ -1016,7 +1031,11 @@ function gpt_upload_media_endpoint($request)
             'post_title' => sanitize_file_name($file['name']),
             'post_content' => '',
             'post_status' => 'inherit',
+            'post_author' => $user_id,
         ];
+        if ($post_id) {
+            $attachment['post_parent'] = intval($post_id);
+        }
         $attach_id = wp_insert_attachment($attachment, $upload['file']);
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
@@ -1077,7 +1096,11 @@ function gpt_upload_media_endpoint($request)
             'post_title' => sanitize_file_name($file_name),
             'post_content' => '',
             'post_status' => 'inherit',
+            'post_author' => $user_id,
         ];
+        if ($post_id) {
+            $attachment['post_parent'] = intval($post_id);
+        }
         $attach_id = wp_insert_attachment($attachment, $upload['file']);
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
@@ -1219,6 +1242,12 @@ function gpt_openapi_schema_handler()
                             'in' => 'query',
                             'required' => true,
                             'schema' => ['type' => 'string']
+                        ],
+                        [
+                            'name' => 'post_id',
+                            'in' => 'query',
+                            'required' => false,
+                            'schema' => ['type' => 'integer']
                         ]
                     ],
                     'requestBody' => [
