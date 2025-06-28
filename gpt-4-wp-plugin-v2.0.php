@@ -840,6 +840,14 @@ function gpt_create_post_endpoint($request)
         return $post_id;
     }
 
+    // Set the post format using the taxonomy API
+    $format = isset($params['format']) ? sanitize_key($params['format']) : 'standard';
+    if ($format && $format !== 'standard') {
+        set_post_format($post_id, $format);
+    } else {
+        set_post_format($post_id, 'standard');
+    }
+
     // Verify the post author matches the GPT user
     $author_check = gpt_ensure_post_author($post_id, $user_id);
     if (is_wp_error($author_check)) {
@@ -947,6 +955,14 @@ function gpt_edit_post_endpoint($request)
     $id = (int) $request->get_param('id');  // Corrected usage of get_param()
     $params = $request->get_json_params();
 
+    // Resolve the GPT user from the API key and set as current user
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    $user_id = create_gpt_user($api_key, $role);
+    wp_set_current_user($user_id);
+    if (!$user_id) {
+        return gpt_error_response('Failed to create user', 500);
+    }
+
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         error_log("Attempting to edit post ID: $id with role: $role");
     }
@@ -994,7 +1010,7 @@ function gpt_edit_post_endpoint($request)
         'post_title' => isset($params['title']) ? sanitize_text_field($params['title']) : $post->post_title,
         'post_content' => isset($params['content']) ? wp_kses_post($params['content']) : $post->post_content,
         'post_excerpt' => isset($params['excerpt']) ? gpt_sanitize_excerpt($params['excerpt']) : $post->post_excerpt,
-        'post_format' => isset($params['format']) ? sanitize_key($params['format']) : $post->post_format,
+        'post_format' => isset($params['format']) ? sanitize_key($params['format']) : get_post_format($post->ID),
         // Slug defaults to being generated from the title when not provided
         'post_name' => gpt_generate_slug($params['slug'] ?? $post->post_name, $params['title'] ?? $post->post_title, $id, isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status),
         'post_author' => $post_author,
@@ -1032,6 +1048,14 @@ function gpt_edit_post_endpoint($request)
             error_log("Error updating post: " . $result->get_error_message());
         }
         return gpt_error_response('Failed to update post', 500);
+    }
+
+    // Ensure the post format is updated
+    $edit_format = isset($params['format']) ? sanitize_key($params['format']) : get_post_format($result);
+    if ($edit_format && $edit_format !== 'standard') {
+        set_post_format($result, $edit_format);
+    } else {
+        set_post_format($result, 'standard');
     }
 
     // Verify the post author after update
