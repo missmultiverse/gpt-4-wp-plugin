@@ -483,11 +483,10 @@ function gpt_get_role_for_key($key)
 /**
  * Permission callback used by GPT REST endpoints.
  *
- * Validates the provided API key and ensures the requested role matches the
- * role mapped to that key.
+ * Reads the API key from request headers and resolves the GPT role.
  *
  * @param WP_REST_Request $request Incoming REST request.
- * @return true|WP_Error True on success or WP_Error on failure.
+ * @return bool True when a valid role is resolved, false otherwise.
  */
 function gpt_rest_permission_check_role($request)
 {
@@ -502,25 +501,13 @@ function gpt_rest_permission_check_role($request)
         }
     }
 
-    if (!$key) {
-        return new WP_Error('missing_api_key', 'API key is required', ['status' => 401]);
-    }
-
     $role = gpt_get_role_for_key($key);
-    if (!$role) {
-        return new WP_Error('invalid_api_key', 'Invalid API key', ['status' => 403]);
+    if ($role) {
+        $request['gpt_role'] = $role;
+        return true;
     }
 
-    $requested_role = $request->get_param('gpt_role');
-    if (!$requested_role) {
-        return new WP_Error('missing_role', 'gpt_role parameter is required', ['status' => 403]);
-    }
-
-    if ($requested_role !== $role) {
-        return new WP_Error('role_mismatch', 'gpt_role does not match API key role', ['status' => 403]);
-    }
-
-    return true;
+    return false;
 }
 
 // --- Helper: Create or fetch user linked to API key ---
