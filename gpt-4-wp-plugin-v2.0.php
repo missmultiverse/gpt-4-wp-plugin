@@ -683,7 +683,7 @@ function gpt_ping_post_endpoint($request)
 function gpt_create_post_endpoint($request)
 {
     $role = $request->get_param('gpt_role');
-    if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
+    if (!in_array($role, ['gpt_admin', 'gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         return gpt_error_response('Invalid role', 403);
     }
     $params = $request->get_json_params();
@@ -706,6 +706,7 @@ function gpt_create_post_endpoint($request)
 
     // Get or create the user at this stage of post creation
     $user_id = create_gpt_user($api_key, $role); // Create user if necessary
+    wp_set_current_user($user_id);
 
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
@@ -979,12 +980,13 @@ function gpt_edit_post_endpoint($request)
 function gpt_upload_media_endpoint($request)
 {
     $role = $request->get_param('gpt_role');
-    if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
+    if (!in_array($role, ['gpt_admin', 'gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         return gpt_error_response('Invalid role', 403);
     }
 
     $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
     $user_id = create_gpt_user($api_key, $role);
+    wp_set_current_user($user_id);
     if (!$user_id || !user_can($user_id, 'upload_files')) {
         return gpt_error_response('User cannot upload files', 403);
     }
