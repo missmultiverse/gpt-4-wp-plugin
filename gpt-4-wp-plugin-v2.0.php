@@ -976,6 +976,18 @@ function gpt_edit_post_endpoint($request)
         return gpt_error_response('Invalid post status', 400);
     }
 
+    // Determine author and ensure permission to change it
+    $post_author = $post->post_author;
+    if (isset($params['author'])) {
+        if (!is_numeric($params['author'])) {
+            return gpt_error_response('author must be a numeric ID', 400);
+        }
+        if (!current_user_can('edit_others_posts') && !current_user_can('manage_options')) {
+            return gpt_error_response('Insufficient permission to change author', 403);
+        }
+        $post_author = intval($params['author']);
+    }
+
     // Post data to update
     $update = [
         'ID' => $id,
@@ -985,7 +997,7 @@ function gpt_edit_post_endpoint($request)
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : $post->post_format,
         // Slug defaults to being generated from the title when not provided
         'post_name' => gpt_generate_slug($params['slug'] ?? $post->post_name, $params['title'] ?? $post->post_title, $id, isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status),
-        'post_author' => isset($params['author']) ? intval($params['author']) : $post->post_author,
+        'post_author' => $post_author,
         'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
