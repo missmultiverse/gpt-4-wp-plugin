@@ -1050,7 +1050,7 @@ function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
     // Build the plugin URL dynamically so the manifest works regardless of the
-    // actual plugin directory name (e.g. gpt-4-wp-plugin-v2.0).
+    // actual plugin directory name (e.g. gpt-4-wp-plugin).
     $plugin_url = plugin_dir_url(__FILE__);
     $manifest = [
         'schema_version' => 'v1',
