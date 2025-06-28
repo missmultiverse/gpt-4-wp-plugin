@@ -162,8 +162,11 @@ If `post_date` is set to a future time, the plugin will schedule the post by aut
 - **Headers:**
   - `Content-Type: multipart/form-data`
   - `gpt-api-key: YOUR_API_KEY`
+- **Query Params:**
+  - `post_id` *(optional)*: attach the upload to a post
+  - `featured` *(optional, boolean)*: set to `true` when uploading a featured image
 - **Body:**
-  - `file`: (binary file upload)
+  - `file`: (binary file upload) or `image_url`: URL to download the image
 - **Response (200):**
 ```json
 {
@@ -179,6 +182,8 @@ If `post_date` is set to a future time, the plugin will schedule the post by aut
   "data": {"status": 400}
 }
 ```
+
+When `post_id` or `featured` is used, the upload is treated as a featured image and **must** be an image file (`image/*`).
 
 ### 5. **Plugin File Management (gpt_admin only)**
 > **Note:** These endpoints are only available to API keys with the `gpt_admin` role (e.g. WebMaster.GPT). All file/folder access is strictly limited to the plugin directory for security.
