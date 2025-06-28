@@ -99,7 +99,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 {
   "title": "My Article Title",
   "content": "<p>Full HTML content</p>",
-  "excerpt": "Short summary",
+  "excerpt": "Short summary (HTML stripped and trimmed to 55 words)",
   "categories": [1, 2],
   "tags": ["tag1", "tag2"],
   "featured_image": 123,

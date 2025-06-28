@@ -744,7 +744,7 @@ function gpt_create_post_endpoint($request)
         'post_content' => wp_kses_post($params['content']),
         'post_status'  => $requested_status,
         'post_type'    => 'post',
-        'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
+        'post_excerpt' => isset($params['excerpt']) ? gpt_sanitize_excerpt($params['excerpt']) : '',
         'post_format'  => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
         'post_name'    => isset($params['slug']) ? sanitize_title($params['slug']) : '',
         'post_author'  => $user_id, // Set the author as the GPT user
@@ -922,7 +922,7 @@ function gpt_edit_post_endpoint($request)
         'ID' => $id,
         'post_title' => isset($params['title']) ? sanitize_text_field($params['title']) : $post->post_title,
         'post_content' => isset($params['content']) ? wp_kses_post($params['content']) : $post->post_content,
-        'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : $post->post_excerpt,
+        'post_excerpt' => isset($params['excerpt']) ? gpt_sanitize_excerpt($params['excerpt']) : $post->post_excerpt,
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : $post->post_format,
         'post_name' => isset($params['slug']) ? sanitize_title($params['slug']) : $post->post_name,
         'post_author' => isset($params['author']) ? intval($params['author']) : $post->post_author,
@@ -1212,7 +1212,10 @@ function gpt_openapi_schema_handler()
                     'properties' => [
                         'title' => ['type' => 'string'],
                         'content' => ['type' => 'string'],
-                        'excerpt' => ['type' => 'string'],
+                        'excerpt' => [
+                            'type' => 'string',
+                            'description' => 'Optional excerpt. HTML tags are stripped and text is trimmed to 55 words.'
+                        ],
                         'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
                         'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
                         'featured_image' => [
@@ -1532,6 +1535,11 @@ add_action('rest_api_init', function () {
 function gpt_get_plugin_dir()
 {
     return dirname(__FILE__);
+}
+
+function gpt_sanitize_excerpt($text)
+{
+    return wp_trim_words(wp_strip_all_tags($text));
 }
 
 function gpt_sanitize_plugin_path($path)
