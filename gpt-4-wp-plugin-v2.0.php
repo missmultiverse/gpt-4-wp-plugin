@@ -463,8 +463,10 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
 function gpt_get_role_for_key($key)
 {
     $keys = get_option('gpt_api_keys', []);
-    error_log('🧪 [DEBUG] Incoming API key: ' . $key);
-    error_log('🧪 [DEBUG] Saved keys: ' . print_r($keys, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('🧪 [DEBUG] Incoming API key');
+        error_log('🧪 [DEBUG] Loaded ' . count($keys) . ' API keys');
+    }
 
     if (is_array($keys) && isset($keys[$key])) {
         return $keys[$key]['role'] ?? null;
@@ -584,7 +586,9 @@ function gpt_ping_post_endpoint($request)
     $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
 
     // 🧪 Optional debug log
-    error_log('🔐 [Auth] API key used in ping: ' . $key);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('🔐 [Auth] Ping request received');
+    }
 
     $role = gpt_get_role_for_key($key);
     if (!$role) {
@@ -608,19 +612,25 @@ function gpt_create_post_endpoint($request)
     $params = $request->get_json_params();
 
     // --- Debugging Step: Log the start of the post creation process
-    error_log("Starting post creation for API key: " . $request->get_header('gpt-api-key'));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Starting post creation');
+    }
 
     // Get or create the user at this stage of post creation
     $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role); // Create user if necessary
 
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
-        error_log("Failed to create or retrieve user for API key: " . $request->get_header('gpt-api-key'));
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log('Failed to create or retrieve user for provided API key');
+        }
         return gpt_error_response('Failed to create user', 500);
     }
 
     // --- Debugging Step: Log the user ID after creation
-    error_log("User created/retrieved successfully with ID: " . $user_id);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('User created/retrieved successfully with ID: ' . $user_id);
+    }
 
     // Now proceed to create the post
     $post_data = [
@@ -640,16 +650,22 @@ function gpt_create_post_endpoint($request)
     }
 
     // --- Debugging Step: Log the post data before insertion
-    error_log("Inserting post with data: " . print_r($post_data, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Inserting post with data: ' . print_r($post_data, true));
+    }
 
     $post_id = wp_insert_post($post_data);
     if (is_wp_error($post_id)) {
-        error_log("Error inserting post: " . $post_id->get_error_message());
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log('Error inserting post: ' . $post_id->get_error_message());
+        }
         return $post_id;
     }
 
     // --- Debugging Step: Log successful post creation
-    error_log("Post created successfully with ID: " . $post_id);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Post created successfully with ID: ' . $post_id);
+    }
 
     // Additional handling for categories, tags, featured image, and metadata
     if (!empty($params['categories'])) {
@@ -680,24 +696,32 @@ function gpt_edit_post_endpoint($request)
     $id = (int) $request->get_param('id');  // Corrected usage of get_param()
     $params = $request->get_json_params();
 
-    error_log("Attempting to edit post ID: $id with role: $role");
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log("Attempting to edit post ID: $id with role: $role");
+    }
 
     $post = get_post($id);
     if (!$post) {
-        error_log("Post not found with ID: $id");
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Post not found with ID: $id");
+        }
         return gpt_error_response('Post not found', 404);
     }
 
     // Check user role permissions
     if ($role === 'gpt_editor' && $post->post_status !== 'draft') {
-        error_log("Editor role cannot edit published posts. Post ID: $id");
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Editor role cannot edit published posts. Post ID: $id");
+        }
         return gpt_error_response('Editors can only edit drafts', 403);
     }
 
     // Validate post status
     $allowed_statuses = ['publish', 'draft', 'pending', 'private'];
     if (isset($params['post_status']) && !in_array($params['post_status'], $allowed_statuses)) {
-        error_log("Invalid post status: " . $params['post_status']);
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Invalid post status: " . $params['post_status']);
+        }
         return gpt_error_response('Invalid post status', 400);
     }
 
@@ -715,18 +739,24 @@ function gpt_edit_post_endpoint($request)
     ];
 
     // Debug log before post update
-    error_log("Post update data: " . print_r($update, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log("Post update data: " . print_r($update, true));
+    }
 
     // Perform the update
     $result = wp_update_post($update, true);
     if (is_wp_error($result)) {
-        error_log("Error updating post: " . $result->get_error_message());
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Error updating post: " . $result->get_error_message());
+        }
         return gpt_error_response('Failed to update post', 500);
     }
 
     // Get the updated post to check its status
     $updated_post = get_post($result);
-    error_log("Updated post status: " . $updated_post->post_status);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log("Updated post status: " . $updated_post->post_status);
+    }
 
     // Check if the post is published or not
     if ($updated_post->post_status === 'publish') {
@@ -1070,7 +1100,9 @@ add_action('wp_ajax_gpt_ping_site', function () {
 // ==========================================
 // --- START --- GPT Universal Action Route
 // ==========================================
-error_log('✅ [WebMasterGPT] rest_api_init called');
+if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+    error_log('✅ [WebMasterGPT] rest_api_init called');
+}
 
 add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/action', [
