@@ -642,6 +642,11 @@ add_action('rest_api_init', function () {
                     return is_numeric($value);
                 },
             ],
+            'featured' => [
+                'validate_callback' => function ($value) {
+                    return in_array(strtolower($value), ['1', '0', 'true', 'false', 1, 0], true);
+                },
+            ],
         ],
     ]);
     register_rest_route('gpt/v1', '/openapi', [
@@ -1016,6 +1021,7 @@ function gpt_upload_media_endpoint($request)
     }
 
     $post_id = $request->get_param('post_id');
+    $featured = $request->get_param('featured');
 
     $uploads = wp_upload_dir();
     if (!empty($uploads['error']) || !is_writable($uploads['path'])) {
@@ -1032,6 +1038,12 @@ function gpt_upload_media_endpoint($request)
         'application/x-msdownload'
     ];
     $allowed_mimes = array_diff($allowed_mimes, $dangerous_mimes);
+    $is_featured = $post_id || filter_var($featured, FILTER_VALIDATE_BOOLEAN);
+    if ($is_featured) {
+        $allowed_mimes = array_filter($allowed_mimes, function ($mime) {
+            return strpos($mime, 'image/') === 0;
+        });
+    }
 
     // --- Support direct file uploads via $_FILES['file'] ---
     if (!empty($_FILES['file']) && isset($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
@@ -1280,6 +1292,7 @@ function gpt_openapi_schema_handler()
             '/media' => [
                 'post' => [
                     'summary' => 'Upload a media file',
+                    'description' => 'If `post_id` or `featured` is provided, only image files are allowed.',
                     'operationId' => 'uploadMedia',
                     'parameters' => [
                         [
@@ -1293,6 +1306,12 @@ function gpt_openapi_schema_handler()
                             'in' => 'query',
                             'required' => false,
                             'schema' => ['type' => 'integer']
+                        ],
+                        [
+                            'name' => 'featured',
+                            'in' => 'query',
+                            'required' => false,
+                            'schema' => ['type' => 'boolean']
                         ]
                     ],
                     'requestBody' => [
