@@ -938,6 +938,7 @@ function gpt_edit_post_endpoint($request)
         }
     }
 
+  // If the post should be scheduled for the future...
     if ($update['post_status'] === 'future') {
         if ($timestamp === false || $timestamp <= current_time('timestamp')) {
             $timestamp = current_time('timestamp') + MINUTE_IN_SECONDS;
