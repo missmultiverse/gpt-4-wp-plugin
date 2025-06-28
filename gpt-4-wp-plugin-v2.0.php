@@ -981,13 +981,24 @@ function gpt_upload_media_endpoint($request)
         return gpt_error_response('Upload directory is not writable.', 500);
     }
 
+    $allowed_mimes = array_unique(array_values(get_allowed_mime_types()));
+    $dangerous_mimes = [
+        'text/html',
+        'application/javascript',
+        'text/javascript',
+        'application/x-php',
+        'text/x-php',
+        'application/x-msdownload'
+    ];
+    $allowed_mimes = array_diff($allowed_mimes, $dangerous_mimes);
+
     // --- Support direct file uploads via $_FILES['file'] ---
     if (!empty($_FILES['file']) && isset($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
         $file = $_FILES['file'];
         $file['name'] = sanitize_file_name($file['name']);
         $filetype = wp_check_filetype($file['name']);
-        if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
-            return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
+        if (!in_array($filetype['type'], $allowed_mimes, true)) {
+            return gpt_error_response('Invalid file type.', 400);
         }
         $max_size = wp_max_upload_size();
         if ($file['size'] > $max_size) {
@@ -1029,8 +1040,8 @@ function gpt_upload_media_endpoint($request)
         }
         $file_name = sanitize_file_name(basename(parse_url($image_url, PHP_URL_PATH)));
         $filetype = wp_check_filetype($file_name);
-        if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
-            return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
+        if (!in_array($filetype['type'], $allowed_mimes, true)) {
+            return gpt_error_response('Invalid file type.', 400);
         }
         $tmpfname = wp_tempnam($file_name);
         if (!$tmpfname) {
