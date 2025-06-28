@@ -896,6 +896,14 @@ function gpt_edit_post_endpoint($request)
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
 
+    // If the provided post_date is in the future, set post_status to 'future'
+    if (!empty($update['post_date'])) {
+        $timestamp = strtotime($update['post_date']);
+        if ($timestamp !== false && $timestamp > current_time('timestamp')) {
+            $update['post_status'] = 'future';
+        }
+    }
+
     // Debug log before post update
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         error_log("Post update data: " . print_r($update, true));
