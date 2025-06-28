@@ -472,6 +472,41 @@ function gpt_get_role_for_key($key)
     return null;
 }
 
+// --- REST permission check based on provided GPT role ---
+function gpt_rest_permission_check_role($request)
+{
+    // Retrieve API key from custom header or Authorization Bearer token
+    $key = $request->get_header('gpt-api-key');
+    if (!$key) {
+        $auth = $request->get_header('authorization');
+        if (stripos($auth, 'Bearer ') === 0) {
+            $key = substr($auth, 7);
+        } else {
+            $key = $auth;
+        }
+    }
+
+    if (!$key) {
+        return new WP_Error('missing_api_key', 'API key is required', ['status' => 401]);
+    }
+
+    $role = gpt_get_role_for_key($key);
+    if (!$role) {
+        return new WP_Error('invalid_api_key', 'Invalid API key', ['status' => 403]);
+    }
+
+    $requested_role = $request->get_param('gpt_role');
+    if (!$requested_role) {
+        return new WP_Error('missing_role', 'gpt_role parameter is required', ['status' => 403]);
+    }
+
+    if ($requested_role !== $role) {
+        return new WP_Error('role_mismatch', 'gpt_role does not match API key role', ['status' => 403]);
+    }
+
+    return true;
+}
+
 
 // --- Pre-configured GPTs and Sites ---
 function gpt_get_preconfigured_gpts()
@@ -1106,9 +1141,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_read_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
@@ -1122,25 +1155,19 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_write_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // Create directory
     register_rest_route('gpt/v1', '/dir', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // List files/directories
     register_rest_route('gpt/v1', '/ls', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_list_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => false,
@@ -1154,9 +1181,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'DELETE',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_delete_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
