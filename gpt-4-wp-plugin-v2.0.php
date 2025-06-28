@@ -1244,7 +1244,6 @@ function gpt_openapi_schema_handler()
                         ],
                         'format' => ['type' => 'string'],
                         'slug' => ['type' => 'string'],
-                        'author' => ['type' => 'integer'],
                         'post_status' => ['type' => 'string', 'description' => 'Desired status (may be overridden to "future" if post_date is in the future)'],
                         'post_date' => ['type' => 'string', 'description' => 'Publish date/time (Y-m-d H:i:s). Future dates schedule the post'],
                         'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
@@ -1276,13 +1275,18 @@ function gpt_openapi_schema_handler()
                         ]
                     ],
                     'responses' => [
-                        '200' => [
+                        '201' => [
                             'description' => 'Post created',
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
                                         'type' => 'object',
-                                        'properties' => ['post_id' => ['type' => 'integer']]
+                                        'properties' => [
+                                            'post_id' => ['type' => 'integer'],
+                                            'post_status' => ['type' => 'string'],
+                                            'author' => ['type' => 'integer'],
+                                            'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
+                                        ]
                                     ]
                                 ]
                             ]
@@ -1323,7 +1327,10 @@ function gpt_openapi_schema_handler()
                                 'application/json' => [
                                     'schema' => [
                                         'type' => 'object',
-                                        'properties' => ['post_id' => ['type' => 'integer']]
+                                        'properties' => [
+                                            'post_id' => ['type' => 'integer'],
+                                            'post_status' => ['type' => 'string']
+                                        ]
                                     ]
                                 ]
                             ]

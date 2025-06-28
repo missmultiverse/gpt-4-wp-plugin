@@ -105,7 +105,6 @@ All endpoints require the `gpt-api-key` header with a valid API key.
   "featured_image": 123,
   "format": "standard",
   "slug": "my-article-title",
-  "author": 2,
   "post_status": "publish",
   "post_date": "2025-06-26 10:00:00",
   "meta": {
@@ -115,10 +114,16 @@ All endpoints require the `gpt-api-key` header with a valid API key.
 }
 ```
 If `post_date` is set to a future time, the plugin will schedule the post by automatically setting its status to `future`.
-- **Response (200):**
+- **Response (201):**
 ```json
 {
-  "post_id": 1234
+  "post_id": 1234,
+  "post_status": "publish",
+  "author": 2,
+  "meta": {
+    "_yoast_wpseo_metadesc": "SEO meta description",
+    "_rank_math_focus_keyword": "focus keyword"
+  }
 }
 ```
 - **Response (error):**
@@ -150,10 +155,11 @@ set to `future`.
   "post_date": "2025-06-30 09:00:00"
 }
 ```
-- **Response (200):**
+ - **Response (200):**
 ```json
 {
-  "post_id": 1234
+  "post_id": 1234,
+  "post_status": "publish"
 }
 ```
 - **Response (error):**
