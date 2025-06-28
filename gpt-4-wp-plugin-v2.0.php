@@ -751,14 +751,23 @@ function gpt_create_post_endpoint($request)
         'post_date'    => $post_date,
     ];
 
-    if (!empty($post_date)) {
+    $timestamp = false;
+    if ($post_date !== '') {
         $timestamp = strtotime($post_date);
         if ($timestamp === false) {
             return gpt_error_response('Invalid post_date', 400);
         }
-        if ($timestamp > current_time('timestamp') && user_can($user_id, 'publish_posts')) {
-            $post_data['post_status'] = 'future';
+    }
+
+    if ($requested_status === 'future') {
+        if ($timestamp === false || $timestamp <= current_time('timestamp')) {
+            $timestamp = current_time('timestamp') + MINUTE_IN_SECONDS;
+            $post_date = date('Y-m-d H:i:s', $timestamp);
         }
+        $post_data['post_status'] = 'future';
+        $post_data['post_date']  = $post_date;
+    } elseif ($timestamp !== false && $timestamp > current_time('timestamp') && user_can($user_id, 'publish_posts')) {
+        $post_data['post_status'] = 'future';
     }
 
     if ($role === 'gpt_editor') {
@@ -921,12 +930,21 @@ function gpt_edit_post_endpoint($request)
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
 
-    // If the provided post_date is in the future, set post_status to 'future'
-    if (!empty($update['post_date'])) {
+    $timestamp = false;
+    if ($update['post_date'] !== '') {
         $timestamp = strtotime($update['post_date']);
-        if ($timestamp !== false && $timestamp > current_time('timestamp')) {
-            $update['post_status'] = 'future';
+        if ($timestamp === false) {
+            return gpt_error_response('Invalid post_date', 400);
         }
+    }
+
+    if ($update['post_status'] === 'future') {
+        if ($timestamp === false || $timestamp <= current_time('timestamp')) {
+            $timestamp = current_time('timestamp') + MINUTE_IN_SECONDS;
+            $update['post_date'] = date('Y-m-d H:i:s', $timestamp);
+        }
+    } elseif ($timestamp !== false && $timestamp > current_time('timestamp')) {
+        $update['post_status'] = 'future';
     }
 
     // Debug log before post update
