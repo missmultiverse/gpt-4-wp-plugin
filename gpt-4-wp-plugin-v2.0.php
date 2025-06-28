@@ -1010,7 +1010,8 @@ function gpt_openapi_schema_handler()
 function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
-    $plugin_url = $site_url . '/wp-content/plugins/gpt-4-wp-plugin-v1.2';
+    // Use the actual plugin directory to build URLs dynamically
+    $plugin_url = rtrim(plugin_dir_url(__FILE__), '/');
     $manifest = [
         'schema_version' => 'v1',
         'name_for_human' => 'GPT-4 WP Plugin v2.0',
