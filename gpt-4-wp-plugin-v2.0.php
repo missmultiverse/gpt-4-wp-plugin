@@ -82,6 +82,8 @@ register_activation_hook(__FILE__, function () {
         'edit_posts' => true,
         'upload_files' => true,
     ]);
+    // Flush rewrite rules so REST routes are registered without requiring a permalink reset
+    flush_rewrite_rules();
 });
 
 // --- Remove custom roles on deactivation ---
@@ -90,6 +92,8 @@ register_deactivation_hook(__FILE__, function () {
     remove_role('gpt_webmaster');
     remove_role('gpt_publisher');
     remove_role('gpt_editor');
+    // Flush rewrite rules so REST routes are removed cleanly
+    flush_rewrite_rules();
 });
 
 // --- API Key Management: Admin UI ---
