@@ -983,7 +983,7 @@ function gpt_create_post_endpoint($request)
 function gpt_edit_post_endpoint($request)
 {
     $role = $request->get_param('gpt_role');
-    $id = (int) $request->get_param('id');  // Corrected usage of get_param()
+    $id = (int) $request->get_param('id');
     $params = $request->get_json_params();
 
     // Resolve the GPT user from the API key and set as current user
@@ -1035,11 +1035,61 @@ function gpt_edit_post_endpoint($request)
         $post_author = intval($params['author']);
     }
 
+    // --- Advanced content placement logic for post_content ---
+    if (!function_exists('gpt_wrap_if_needed')) {
+        /**
+         * Wraps content in <p> if it doesn't look like HTML
+         * @param string $content
+         * @return string
+         */
+        function gpt_wrap_if_needed($content) {
+            $trimmed = trim($content);
+            // If it starts with a tag, assume it's HTML
+            if (preg_match('/^\s*<\w+.*?>/s', $trimmed)) {
+                return $trimmed;
+            }
+            // Otherwise, wrap in <p>
+            return '<p>' . esc_html($trimmed) . '</p>';
+        }
+    }
+    if (!empty($params['content'])) {
+        $new_content = trim($params['content']);
+        $existing_content = $post->post_content;
+        // Determine placement: "position" or legacy "append"
+        $position = 'replace';
+        if (isset($params['position'])) {
+            $position = strtolower($params['position']);
+        } elseif (!empty($params['append'])) {
+            // Legacy: treat append=true as "bottom"
+            $position = 'bottom';
+        }
+        // If both "append" and "position" are present, "position" takes precedence
+        // Supported: "top", "bottom", "replace" (default: replace)
+        switch ($position) {
+            case 'top':
+                // Prepend new content above existing content, separated by double newline
+                $final_content = gpt_wrap_if_needed($new_content) . "\n\n" . ltrim($existing_content);
+                break;
+            case 'bottom':
+                // Append new content below existing content, separated by double newline
+                $final_content = rtrim($existing_content) . "\n\n" . gpt_wrap_if_needed($new_content);
+                break;
+            case 'replace':
+            default:
+                // Replace existing content entirely
+                $final_content = gpt_wrap_if_needed($new_content);
+                break;
+        }
+    } else {
+        // No new content provided; keep existing content
+        $final_content = $post->post_content;
+    }
+
     // Post data to update
     $update = [
         'ID' => $id,
         'post_title' => isset($params['title']) ? sanitize_text_field($params['title']) : $post->post_title,
-        'post_content' => isset($params['content']) ? wp_kses_post($params['content']) : $post->post_content,
+        'post_content' => $final_content, // <-- use advanced placement logic result
         'post_excerpt' => isset($params['excerpt']) ? gpt_sanitize_excerpt($params['excerpt']) : $post->post_excerpt,
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : get_post_format($post->ID),
         // Slug defaults to being generated from the title when not provided
