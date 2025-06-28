@@ -22,6 +22,7 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
   - REST endpoint diagnostics and status (now split into two columns for clarity)
   - Recent API error log display
 - **All code in a single file:** Easy to install, portable, and maintainable
+- **Automatic permalink flush on activation/deactivation:** REST routes work immediately without manual resets
 
 ---
 
@@ -113,6 +114,7 @@ All endpoints require the `gpt-api-key` header with a valid API key.
   }
 }
 ```
+If `post_date` is set to a future time, the plugin will schedule the post by automatically setting its status to `future`.
 - **Response (200):**
 ```json
 {

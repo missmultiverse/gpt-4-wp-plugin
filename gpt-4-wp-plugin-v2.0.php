@@ -82,6 +82,8 @@ register_activation_hook(__FILE__, function () {
         'edit_posts' => true,
         'upload_files' => true,
     ]);
+    // Flush rewrite rules so REST routes are registered without requiring a permalink reset
+    flush_rewrite_rules();
 });
 
 // --- Remove custom roles on deactivation ---
@@ -90,6 +92,8 @@ register_deactivation_hook(__FILE__, function () {
     remove_role('gpt_webmaster');
     remove_role('gpt_publisher');
     remove_role('gpt_editor');
+    // Flush rewrite rules so REST routes are removed cleanly
+    flush_rewrite_rules();
 });
 
 // --- API Key Management: Admin UI ---
@@ -463,8 +467,10 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
 function gpt_get_role_for_key($key)
 {
     $keys = get_option('gpt_api_keys', []);
-    error_log('🧪 [DEBUG] Incoming API key: ' . $key);
-    error_log('🧪 [DEBUG] Saved keys: ' . print_r($keys, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('🧪 [DEBUG] Incoming API key');
+        error_log('🧪 [DEBUG] Loaded ' . count($keys) . ' API keys');
+    }
 
     if (is_array($keys) && isset($keys[$key])) {
         return $keys[$key]['role'] ?? null;
@@ -472,7 +478,46 @@ function gpt_get_role_for_key($key)
     return null;
 }
 
+
+// --- REST permission check based on provided GPT role ---
+/**
+ * Permission callback used by GPT REST endpoints.
+ *
+ * Reads the API key from request headers and resolves the GPT role.
+ *
+ * @param WP_REST_Request $request Incoming REST request.
+ * @return bool True when a valid role is resolved, false otherwise.
+ */
+function gpt_rest_permission_check_role($request)
+{
+    // Retrieve API key from custom header or Authorization Bearer token
+    $key = $request->get_header('gpt-api-key');
+    if (!$key) {
+        $auth = $request->get_header('authorization');
+        if (stripos($auth, 'Bearer ') === 0) {
+            $key = substr($auth, 7);
+        } else {
+            $key = $auth;
+        }
+    }
+
+    $role = gpt_get_role_for_key($key);
+    if ($role) {
+        $request['gpt_role'] = $role;
+        return true;
+    }
+
+    return false;
+}
+
 // --- Helper: Create or fetch user linked to API key ---
+/**
+ * Fetch an existing user associated with an API key or create one.
+ *
+ * @param string $api_key The API key presented by the client.
+ * @param string $role    WordPress role to assign when creating a user.
+ * @return int|false      User ID on success or false on failure.
+ */
 function create_gpt_user($api_key, $role)
 {
     if (empty($api_key) || empty($role)) {
@@ -508,6 +553,7 @@ function create_gpt_user($api_key, $role)
     update_user_meta($user_id, 'gpt_api_key', $api_key);
 
     return $user_id;
+
 }
 
 
@@ -622,7 +668,9 @@ function gpt_ping_post_endpoint($request)
     $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
 
     // 🧪 Optional debug log
-    error_log('🔐 [Auth] API key used in ping: ' . $key);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('🔐 [Auth] Ping request received');
+    }
 
     $role = gpt_get_role_for_key($key);
     if (!$role) {
@@ -645,70 +693,167 @@ function gpt_create_post_endpoint($request)
     }
     $params = $request->get_json_params();
 
+    if (empty($params['title'])) {
+        return gpt_error_response('Title is required', 400);
+    }
+    if (empty($params['content'])) {
+        return gpt_error_response('Content is required', 400);
+    }
+
     // Accept both "gpt-api-key" and "Authorization: Bearer" headers
     $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
 
+
     // --- Debugging Step: Log the start of the post creation process
-    error_log('Starting post creation for API key: ' . $api_key);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Starting post creation');
+    }
 
     // Get or create the user at this stage of post creation
     $user_id = create_gpt_user($api_key, $role); // Create user if necessary
 
     // --- Debugging Step: Log the user creation process
     if (!$user_id) {
-        error_log('Failed to create or retrieve user for API key: ' . $api_key);
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log('Failed to create or retrieve user for provided API key');
+        }
         return gpt_error_response('Failed to create user', 500);
     }
 
     // --- Debugging Step: Log the user ID after creation
-    error_log("User created/retrieved successfully with ID: " . $user_id);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('User created/retrieved successfully with ID: ' . $user_id);
+    }
 
     // Now proceed to create the post
+    $post_date = isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '';
+
+    $allowed_statuses = ['publish', 'draft', 'pending', 'private', 'future'];
+    if (isset($params['post_status'])) {
+        $requested_status = sanitize_key($params['post_status']);
+        if (!in_array($requested_status, $allowed_statuses)) {
+            return gpt_error_response('Invalid post_status', 400);
+        }
+    } else {
+        $requested_status = ($role === 'gpt_editor') ? 'draft' : 'publish';
+    }
+
     $post_data = [
-        'post_title' => sanitize_text_field($params['title'] ?? ''),
-        'post_content' => wp_kses_post($params['content'] ?? ''),
-        'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($role === 'gpt_editor') ? 'draft' : 'publish'),
-        'post_type' => 'post',
+        'post_title'   => sanitize_text_field($params['title']),
+        'post_content' => wp_kses_post($params['content']),
+        'post_status'  => $requested_status,
+        'post_type'    => 'post',
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
-        'post_format' => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
-        'post_name' => isset($params['slug']) ? sanitize_title($params['slug']) : '',
-        'post_author' => $user_id, // Set the author as the GPT user
-        'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '',
+        'post_format'  => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
+        'post_name'    => isset($params['slug']) ? sanitize_title($params['slug']) : '',
+        'post_author'  => $user_id, // Set the author as the GPT user
+        'post_date'    => $post_date,
     ];
+
+    if (!empty($post_date)) {
+        $timestamp = strtotime($post_date);
+        if ($timestamp === false) {
+            return gpt_error_response('Invalid post_date', 400);
+        }
+        if ($timestamp > current_time('timestamp') && user_can($user_id, 'publish_posts')) {
+            $post_data['post_status'] = 'future';
+        }
+    }
 
     if ($role === 'gpt_editor') {
         $post_data['post_status'] = 'draft';
     }
 
     // --- Debugging Step: Log the post data before insertion
-    error_log("Inserting post with data: " . print_r($post_data, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Inserting post with data: ' . print_r($post_data, true));
+    }
 
     $post_id = wp_insert_post($post_data);
     if (is_wp_error($post_id)) {
-        error_log("Error inserting post: " . $post_id->get_error_message());
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log('Error inserting post: ' . $post_id->get_error_message());
+        }
         return $post_id;
     }
 
     // --- Debugging Step: Log successful post creation
-    error_log("Post created successfully with ID: " . $post_id);
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log('Post created successfully with ID: ' . $post_id);
+    }
 
     // Additional handling for categories, tags, featured image, and metadata
     if (!empty($params['categories'])) {
-        wp_set_post_categories($post_id, array_map('intval', (array) $params['categories']));
+        $categories = [];
+        foreach ((array) $params['categories'] as $cat) {
+            if (is_numeric($cat)) {
+                $cat_id = intval($cat);
+                if (!term_exists($cat_id, 'category')) {
+                    return gpt_error_response('Invalid category ID: ' . $cat_id, 400);
+                }
+                $categories[] = $cat_id;
+            } else {
+                $cat_name = sanitize_text_field($cat);
+                $term = term_exists($cat_name, 'category');
+                if (!$term) {
+                    return gpt_error_response('Invalid category: ' . $cat_name, 400);
+                }
+                $categories[] = is_array($term) ? intval($term['term_id']) : intval($term);
+            }
+        }
+        $cat_result = wp_set_post_categories($post_id, $categories);
+        if (is_wp_error($cat_result)) {
+            return gpt_error_response($cat_result->get_error_message(), 400);
+        }
     }
     if (!empty($params['tags'])) {
-        wp_set_post_tags($post_id, (array) $params['tags']);
+        $sanitized_tags = array_map('sanitize_text_field', (array) $params['tags']);
+        $tags = [];
+        foreach ($sanitized_tags as $tag) {
+            if (is_numeric($tag)) {
+                $tag_id = intval($tag);
+                if (!term_exists($tag_id, 'post_tag')) {
+                    return gpt_error_response('Invalid tag ID: ' . $tag_id, 400);
+                }
+                $tags[] = $tag_id;
+            } else {
+                $term = term_exists($tag, 'post_tag');
+                if (!$term) {
+                    return gpt_error_response('Invalid tag: ' . $tag, 400);
+                }
+                $tags[] = is_array($term) ? intval($term['term_id']) : intval($term);
+            }
+        }
+        $tag_result = wp_set_post_tags($post_id, $tags);
+        if (is_wp_error($tag_result)) {
+            return gpt_error_response($tag_result->get_error_message(), 400);
+        }
     }
     if (!empty($params['featured_image'])) {
-        set_post_thumbnail($post_id, intval($params['featured_image']));
+        $thumb_result = set_post_thumbnail($post_id, intval($params['featured_image']));
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
     }
+    $meta_response = [];
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
-            update_post_meta($post_id, sanitize_key($key), sanitize_text_field($value));
+            $clean_key = sanitize_key($key);
+            $clean_value = sanitize_text_field($value);
+            $meta_result = update_post_meta($post_id, $clean_key, $clean_value);
+            if (is_wp_error($meta_result)) {
+                return gpt_error_response($meta_result->get_error_message(), 400);
+            }
+            $meta_response[$clean_key] = $clean_value;
         }
     }
 
-    return ['post_id' => $post_id];
+    return new WP_REST_Response([
+        'post_id' => $post_id,
+        'post_status' => get_post_status($post_id),
+        'author' => $user_id,
+        'meta' => $meta_response
+    ], 201);
 }
 
 // --- END --- REST: Create Post ---
@@ -721,24 +866,32 @@ function gpt_edit_post_endpoint($request)
     $id = (int) $request->get_param('id');  // Corrected usage of get_param()
     $params = $request->get_json_params();
 
-    error_log("Attempting to edit post ID: $id with role: $role");
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log("Attempting to edit post ID: $id with role: $role");
+    }
 
     $post = get_post($id);
     if (!$post) {
-        error_log("Post not found with ID: $id");
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Post not found with ID: $id");
+        }
         return gpt_error_response('Post not found', 404);
     }
 
     // Check user role permissions
     if ($role === 'gpt_editor' && $post->post_status !== 'draft') {
-        error_log("Editor role cannot edit published posts. Post ID: $id");
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Editor role cannot edit published posts. Post ID: $id");
+        }
         return gpt_error_response('Editors can only edit drafts', 403);
     }
 
     // Validate post status
     $allowed_statuses = ['publish', 'draft', 'pending', 'private'];
     if (isset($params['post_status']) && !in_array($params['post_status'], $allowed_statuses)) {
-        error_log("Invalid post status: " . $params['post_status']);
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Invalid post status: " . $params['post_status']);
+        }
         return gpt_error_response('Invalid post status', 400);
     }
 
@@ -755,49 +908,73 @@ function gpt_edit_post_endpoint($request)
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
 
+    // If the provided post_date is in the future, set post_status to 'future'
+    if (!empty($update['post_date'])) {
+        $timestamp = strtotime($update['post_date']);
+        if ($timestamp !== false && $timestamp > current_time('timestamp')) {
+            $update['post_status'] = 'future';
+        }
+    }
+
     // Debug log before post update
-    error_log("Post update data: " . print_r($update, true));
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        error_log("Post update data: " . print_r($update, true));
+    }
 
     // Perform the update
     $result = wp_update_post($update, true);
     if (is_wp_error($result)) {
-        error_log("Error updating post: " . $result->get_error_message());
+        if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+            error_log("Error updating post: " . $result->get_error_message());
+        }
         return gpt_error_response('Failed to update post', 500);
     }
 
-    // Update categories, tags, featured image and meta before returning
+
+    // Apply categories
     if (!empty($params['categories'])) {
-        wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
-    }
-    if (!empty($params['tags'])) {
-        wp_set_post_tags($result, (array) $params['tags']);
-    }
-    if (!empty($params['featured_image'])) {
-        set_post_thumbnail($result, intval($params['featured_image']));
-    }
-    if (!empty($params['meta']) && is_array($params['meta'])) {
-        foreach ($params['meta'] as $key => $value) {
-            update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
+        $cat_result = wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
+        if (is_wp_error($cat_result)) {
+            return gpt_error_response($cat_result->get_error_message(), 400);
         }
     }
 
-    // Get the updated post to check its final status
-    $updated_post = get_post($result);
-    error_log("Updated post status: " . $updated_post->post_status);
+    // Apply tags
+    if (!empty($params['tags'])) {
+        $tags = array_map('sanitize_text_field', (array) $params['tags']);
+        $tag_result = wp_set_post_tags($result, $tags);
+        if (is_wp_error($tag_result)) {
+            return gpt_error_response($tag_result->get_error_message(), 400);
+        }
+    }
 
-    // Check if the post is published or not after all updates
-    if ($updated_post->post_status === 'publish') {
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'success',
-            'message' => 'Post successfully updated and published.'
-        ], 200);
+    // Featured image
+    if (!empty($params['featured_image'])) {
+        $thumb_result = set_post_thumbnail($result, intval($params['featured_image']));
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response($thumb_result->get_error_message(), 400);
+        }
+    }
+
+    // Meta fields
+    if (!empty($params['meta']) && is_array($params['meta'])) {
+        foreach ($params['meta'] as $key => $value) {
+            $meta_result = update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
+            if (is_wp_error($meta_result)) {
+                return gpt_error_response($meta_result->get_error_message(), 400);
+            }
+        }
+    }
+
+    // Fetch final status
+    $updated_post = get_post($result);
+    if (!$updated_post) {
+        return gpt_error_response('Failed to retrieve updated post', 500);
     }
 
     return new WP_REST_Response([
         'post_id' => $result,
-        'status' => 'pending',
-        'message' => 'Post updated, but pending approval for publication.'
+        'post_status' => $updated_post->post_status
     ], 200);
 }
 
@@ -932,8 +1109,8 @@ function gpt_openapi_schema_handler()
                         'format' => ['type' => 'string'],
                         'slug' => ['type' => 'string'],
                         'author' => ['type' => 'integer'],
-                        'post_status' => ['type' => 'string'],
-                        'post_date' => ['type' => 'string'],
+                        'post_status' => ['type' => 'string', 'description' => 'Desired status (may be overridden to "future" if post_date is in the future)'],
+                        'post_date' => ['type' => 'string', 'description' => 'Publish date/time (Y-m-d H:i:s). Future dates schedule the post'],
                         'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
                     ],
                     'required' => ['title', 'content']
@@ -946,6 +1123,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Create a new post',
                     'operationId' => 'createPost',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -979,6 +1164,12 @@ function gpt_openapi_schema_handler()
                             'in' => 'path',
                             'required' => true,
                             'schema' => ['type' => 'integer']
+                        ],
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
                         ]
                     ],
                     'requestBody' => [
@@ -1008,6 +1199,14 @@ function gpt_openapi_schema_handler()
                 'post' => [
                     'summary' => 'Upload a media file',
                     'operationId' => 'uploadMedia',
+                    'parameters' => [
+                        [
+                            'name' => 'gpt_role',
+                            'in' => 'query',
+                            'required' => true,
+                            'schema' => ['type' => 'string']
+                        ]
+                    ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
@@ -1015,7 +1214,8 @@ function gpt_openapi_schema_handler()
                                 'schema' => [
                                     'type' => 'object',
                                     'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary']
+                                        'file' => ['type' => 'string', 'format' => 'binary'],
+                                        'image_url' => ['type' => 'string']
                                     ]
                                 ]
                             ]
@@ -1049,9 +1249,11 @@ function gpt_openapi_schema_handler()
 function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
+
     // Build the plugin URL dynamically so the manifest works regardless of the
     // actual plugin directory name (e.g. gpt-4-wp-plugin).
-    $plugin_url = plugin_dir_url(__FILE__);
+    $plugin_url = rtrim(plugin_dir_url(__FILE__), '/');
+
     $manifest = [
         'schema_version' => 'v1',
         'name_for_human' => 'GPT-4 WP Plugin v2.0',
@@ -1111,7 +1313,9 @@ add_action('wp_ajax_gpt_ping_site', function () {
 // ==========================================
 // --- START --- GPT Universal Action Route
 // ==========================================
-error_log('✅ [WebMasterGPT] rest_api_init called');
+if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+    error_log('✅ [WebMasterGPT] rest_api_init called');
+}
 
 add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/action', [
@@ -1147,9 +1351,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_read_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
@@ -1163,25 +1365,19 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_write_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // Create directory
     register_rest_route('gpt/v1', '/dir', [
         'methods' => 'POST',
         'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        }
+        'permission_callback' => 'gpt_rest_permission_check_role'
     ]);
     // List files/directories
     register_rest_route('gpt/v1', '/ls', [
         'methods' => 'GET',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_list_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => false,
@@ -1195,9 +1391,7 @@ add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/file', [
         'methods' => 'DELETE',
         'callback' => gpt_rest_api_error_wrapper('gpt_file_delete_endpoint'),
-        'permission_callback' => function ($request) {
-            return gpt_rest_permission_check_gpt_admin($request);
-        },
+        'permission_callback' => 'gpt_rest_permission_check_role',
         'args' => [
             'path' => [
                 'required' => true,
