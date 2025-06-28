@@ -989,6 +989,13 @@ function gpt_upload_media_endpoint($request)
         if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
             return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
         }
+        $max_size = wp_max_upload_size();
+        if ($file['size'] > $max_size) {
+            return gpt_error_response(
+                'File exceeds the maximum upload size of ' . size_format($max_size),
+                400
+            );
+        }
         $upload = wp_handle_upload($file, ['test_form' => false]);
         if (isset($upload['error'])) {
             return gpt_error_response($upload['error'], 400);
@@ -1041,6 +1048,14 @@ function gpt_upload_media_endpoint($request)
             'error' => 0,
             'size' => filesize($tmpfname)
         ];
+        $max_size = wp_max_upload_size();
+        if ($file['size'] > $max_size) {
+            @unlink($tmpfname);
+            return gpt_error_response(
+                'File exceeds the maximum upload size of ' . size_format($max_size),
+                400
+            );
+        }
         $upload = wp_handle_sideload($file, ['test_form' => false]);
         @unlink($tmpfname);
         if (isset($upload['error'])) {
