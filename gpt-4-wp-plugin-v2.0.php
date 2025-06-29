@@ -659,10 +659,21 @@ if (!function_exists('gpt_sanitize_excerpt')) {
 function gpt_create_post_endpoint($request)
 {
     gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
-    $role = $request->get_param('gpt_role');
-    gpt_debug_log('[gpt_create_post_endpoint] Role from request', $role);
-    
-    // Check role validity
+
+    // Determine role from API key or request param
+    $api_key = $request->get_header('gpt-api-key');
+    gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
+    $role = gpt_get_role_for_key($api_key);
+    $param_role = $request->get_param('gpt_role');
+    if ($param_role && $param_role !== $role) {
+        gpt_debug_log('[gpt_create_post_endpoint] Role mismatch', [$param_role, $role]);
+        return gpt_error_response('Invalid role', 403);
+    }
+    if (!$role) {
+        $role = $param_role; // fallback if option lookup failed
+    }
+    gpt_debug_log('[gpt_create_post_endpoint] Effective role', $role);
+
     if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         gpt_debug_log('[gpt_create_post_endpoint] Invalid role found', $role);
         return gpt_error_response('Invalid role', 403);
@@ -670,10 +681,6 @@ function gpt_create_post_endpoint($request)
 
     $params = $request->get_json_params();
     gpt_debug_log('[gpt_create_post_endpoint] Params', $params);
-
-    // Check if API key is valid
-    $api_key = $request->get_header('gpt-api-key');
-    gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
 
     // Retrieve and check user ID based on API key and role
     $user_id = create_gpt_user($api_key, $role);
@@ -738,7 +745,20 @@ function gpt_create_post_endpoint($request)
 function gpt_edit_post_endpoint($request)
 {
     gpt_debug_log('[gpt_edit_post_endpoint] Incoming request', $request->get_json_params());
-    $role = $request->get_param('gpt_role');
+    $api_key = $request->get_header('gpt-api-key');
+    $role = gpt_get_role_for_key($api_key);
+    $param_role = $request->get_param('gpt_role');
+    if ($param_role && $param_role !== $role) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Role mismatch', [$param_role, $role]);
+        return gpt_error_response('Invalid role', 403);
+    }
+    if (!$role) {
+        $role = $param_role;
+    }
+    if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Invalid role found', $role);
+        return gpt_error_response('Invalid role', 403);
+    }
     $id = (int) $request->get_param('id');
     gpt_debug_log('[gpt_edit_post_endpoint] Role', $role);
     gpt_debug_log('[gpt_edit_post_endpoint] Post ID', $id);
@@ -816,7 +836,15 @@ function gpt_edit_post_endpoint($request)
 // --- REST: Upload Media ---
 function gpt_upload_media_endpoint($request)
 {
-    $role = $request->get_param('gpt_role');
+    $api_key = $request->get_header('gpt-api-key');
+    $role = gpt_get_role_for_key($api_key);
+    $param_role = $request->get_param('gpt_role');
+    if ($param_role && $param_role !== $role) {
+        return gpt_error_response('Invalid role', 403);
+    }
+    if (!$role) {
+        $role = $param_role;
+    }
     if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         return gpt_error_response('Invalid role', 403);
     }
