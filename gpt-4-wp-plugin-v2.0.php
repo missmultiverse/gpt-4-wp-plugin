@@ -13,6 +13,21 @@ Requires at least: 6.0
 Tested up to: 6.7
 */
 
+// --- DEBUG LOGGING HELPER ---
+function gpt_debug_log($label, $data = null) {
+    if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
+        $msg = '[DEBUG]' . $label;
+        if (!is_null($data)) {
+            if (is_array($data) || is_object($data)) {
+                $msg .= ' ' . print_r($data, true);
+            } else {
+                $msg .= ' ' . $data;
+            }
+        }
+        error_log($msg);
+    }
+}
+
 // --- Centralized error response and logging helper (for use in REST endpoints) ---
 if (!function_exists('gpt_error_response')) {
     function gpt_error_response($message, $status = 400, $data = [])
@@ -468,35 +483,40 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
  * @return bool
  */
 function gpt_rest_permission_check_role($request) {
+    gpt_debug_log('[gpt_rest_permission_check_role] Incoming headers', $request->get_headers());
     $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    gpt_debug_log('[gpt_rest_permission_check_role] API key', $key);
     if (!$key) {
-        error_log('[GPT-4-WP-Plugin] Permission denied: Missing gpt-api-key header');
+        gpt_debug_log('[gpt_rest_permission_check_role] Permission denied: Missing gpt-api-key header');
         return false;
     }
     $role = gpt_get_role_for_key($key);
+    gpt_debug_log('[gpt_rest_permission_check_role] Role for key', $role);
     if (!$role) {
-        error_log('[GPT-4-WP-Plugin] Permission denied: Invalid API key');
+        gpt_debug_log('[gpt_rest_permission_check_role] Permission denied: Invalid API key');
         return false;
     }
-    // Optionally check for gpt_role param match (if present)
     $requested_role = $request->get_param('gpt_role');
+    gpt_debug_log('[gpt_rest_permission_check_role] Requested role', $requested_role);
     if ($requested_role && $requested_role !== $role) {
-        error_log("[GPT-4-WP-Plugin] Permission denied: API key role '{$role}' does not match requested role '{$requested_role}'");
+        gpt_debug_log("[gpt_rest_permission_check_role] Permission denied: API key role '{$role}' does not match requested role '{$requested_role}'");
         return false;
     }
+    gpt_debug_log('[gpt_rest_permission_check_role] Permission granted');
     return true;
 }
 
 // --- Helper: Validate API key and get role ---
 function gpt_get_role_for_key($key)
 {
+    gpt_debug_log('[gpt_get_role_for_key] Checking key', $key);
     $keys = get_option('gpt_api_keys', []);
-    error_log('🧪 [DEBUG] Incoming API key: ' . $key);
-    error_log('🧪 [DEBUG] Saved keys: ' . print_r($keys, true));
-
+    gpt_debug_log('[gpt_get_role_for_key] All keys', $keys);
     if (is_array($keys) && isset($keys[$key])) {
+        gpt_debug_log('[gpt_get_role_for_key] Role found', $keys[$key]['role'] ?? null);
         return $keys[$key]['role'] ?? null;
     }
+    gpt_debug_log('[gpt_get_role_for_key] No role found for key');
     return null;
 }
 
@@ -629,18 +649,23 @@ function gpt_ping_post_endpoint($request)
 // --- START --- REST: Create Post ---
 function gpt_create_post_endpoint($request)
 {
+    gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
     $role = $request->get_param('gpt_role');
+    gpt_debug_log('[gpt_create_post_endpoint] Role', $role);
     if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
+        gpt_debug_log('[gpt_create_post_endpoint] Invalid role', $role);
         return gpt_error_response('Invalid role', 403);
     }
     $params = $request->get_json_params();
-    error_log("Starting post creation for API key: " . $request->get_header('gpt-api-key'));
-    $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role);
+    gpt_debug_log('[gpt_create_post_endpoint] Params', $params);
+    $api_key = $request->get_header('gpt-api-key');
+    gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
+    $user_id = create_gpt_user($api_key, $role);
+    gpt_debug_log('[gpt_create_post_endpoint] User ID', $user_id);
     if (!$user_id) {
-        error_log("Failed to create or retrieve user for API key: " . $request->get_header('gpt-api_key'));
+        gpt_debug_log('[gpt_create_post_endpoint] Failed to create or retrieve user for API key', $api_key);
         return gpt_error_response('Failed to create user', 500);
     }
-    error_log("User created/retrieved successfully with ID: " . $user_id);
     $post_data = [
         'post_title' => sanitize_text_field($params['title'] ?? ''),
         'post_content' => wp_kses_post($params['content'] ?? ''),
@@ -652,29 +677,30 @@ function gpt_create_post_endpoint($request)
         'post_author' => $user_id,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '',
     ];
-    if ($role === 'gpt_editor') {
-        $post_data['post_status'] = 'draft';
-    }
-    error_log("Inserting post with data: " . print_r($post_data, true));
+    gpt_debug_log('[gpt_create_post_endpoint] Post data', $post_data);
     $post_id = wp_insert_post($post_data);
+    gpt_debug_log('[gpt_create_post_endpoint] wp_insert_post result', $post_id);
     if (is_wp_error($post_id)) {
-        error_log("Error inserting post: " . $post_id->get_error_message());
+        gpt_debug_log('[gpt_create_post_endpoint] Error inserting post', $post_id->get_error_message());
         return $post_id;
     }
-    error_log("Post created successfully with ID: " . $post_id);
     if (!empty($params['categories'])) {
+        gpt_debug_log('[gpt_create_post_endpoint] Setting categories', $params['categories']);
         wp_set_post_categories($post_id, array_map('intval', (array) $params['categories']));
     }
     if (!empty($params['tags'])) {
+        gpt_debug_log('[gpt_create_post_endpoint] Setting tags', $params['tags']);
         wp_set_post_tags($post_id, (array) $params['tags']);
     }
-    // --- FEATURED IMAGE HANDLING ---
+    gpt_debug_log('[gpt_create_post_endpoint] Handling featured image');
     gpt_handle_featured_image($post_id, $params);
     if (!empty($params['meta']) && is_array($params['meta'])) {
+        gpt_debug_log('[gpt_create_post_endpoint] Setting meta', $params['meta']);
         foreach ($params['meta'] as $key => $value) {
             update_post_meta($post_id, sanitize_key($key), sanitize_text_field($value));
         }
     }
+    gpt_debug_log('[gpt_create_post_endpoint] Returning post_id', $post_id);
     return ['post_id' => $post_id];
 }
 // --- END --- REST: Create Post ---
@@ -683,22 +709,25 @@ function gpt_create_post_endpoint($request)
 // --- REST: Edit Post ---
 function gpt_edit_post_endpoint($request)
 {
+    gpt_debug_log('[gpt_edit_post_endpoint] Incoming request', $request->get_json_params());
     $role = $request->get_param('gpt_role');
     $id = (int) $request->get_param('id');
+    gpt_debug_log('[gpt_edit_post_endpoint] Role', $role);
+    gpt_debug_log('[gpt_edit_post_endpoint] Post ID', $id);
     $params = $request->get_json_params();
-    error_log("Attempting to edit post ID: $id with role: $role");
     $post = get_post($id);
+    gpt_debug_log('[gpt_edit_post_endpoint] Loaded post', $post);
     if (!$post) {
-        error_log("Post not found with ID: $id");
+        gpt_debug_log('[gpt_edit_post_endpoint] Post not found', $id);
         return gpt_error_response('Post not found', 404);
     }
     if ($role === 'gpt_editor' && $post->post_status !== 'draft') {
-        error_log("Editor role cannot edit published posts. Post ID: $id");
+        gpt_debug_log('[gpt_edit_post_endpoint] Editor role cannot edit published posts', $id);
         return gpt_error_response('Editors can only edit drafts', 403);
     }
     $allowed_statuses = ['publish', 'draft', 'pending', 'private'];
     if (isset($params['post_status']) && !in_array($params['post_status'], $allowed_statuses)) {
-        error_log("Invalid post status: " . $params['post_status']);
+        gpt_debug_log('[gpt_edit_post_endpoint] Invalid post status', $params['post_status']);
         return gpt_error_response('Invalid post status', 400);
     }
     $update = [
@@ -712,34 +741,40 @@ function gpt_edit_post_endpoint($request)
         'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
-    error_log("Post update data: " . print_r($update, true));
+    gpt_debug_log('[gpt_edit_post_endpoint] Update array', $update);
     $result = wp_update_post($update, true);
+    gpt_debug_log('[gpt_edit_post_endpoint] wp_update_post result', $result);
     if (is_wp_error($result)) {
-        error_log("Error updating post: " . $result->get_error_message());
+        gpt_debug_log('[gpt_edit_post_endpoint] Error updating post', $result->get_error_message());
         return gpt_error_response('Failed to update post', 500);
     }
-    // --- FEATURED IMAGE HANDLING ---
+    gpt_debug_log('[gpt_edit_post_endpoint] Handling featured image');
     gpt_handle_featured_image($result, $params);
     if (!empty($params['categories'])) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Setting categories', $params['categories']);
         wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
     }
     if (!empty($params['tags'])) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Setting tags', $params['tags']);
         wp_set_post_tags($result, (array) $params['tags']);
     }
     if (!empty($params['meta']) && is_array($params['meta'])) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Setting meta', $params['meta']);
         foreach ($params['meta'] as $key => $value) {
             update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
         }
     }
     $updated_post = get_post($result);
-    error_log("Updated post status: " . $updated_post->post_status);
+    gpt_debug_log('[gpt_edit_post_endpoint] Updated post', $updated_post);
     if ($updated_post->post_status === 'publish') {
+        gpt_debug_log('[gpt_edit_post_endpoint] Returning success response', $result);
         return new WP_REST_Response([
             'post_id' => $result,
             'status' => 'success',
             'message' => 'Post successfully updated and published.'
         ], 200);
     } else {
+        gpt_debug_log('[gpt_edit_post_endpoint] Returning pending response', $result);
         return new WP_REST_Response([
             'post_id' => $result,
             'status' => 'pending',
