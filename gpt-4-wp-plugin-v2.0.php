@@ -645,6 +645,15 @@ function gpt_ping_post_endpoint($request)
     ], 200);
 }
 
+// --- Helper: Sanitize and limit excerpt ---
+if (!function_exists('gpt_sanitize_excerpt')) {
+    function gpt_sanitize_excerpt($excerpt) {
+        // Basic sanitization and max length 200 characters
+        $clean = sanitize_text_field($excerpt);
+        return mb_substr($clean, 0, 200);
+    }
+}
+
 
 // --- START --- REST: Create Post ---
 function gpt_create_post_endpoint($request)
@@ -1473,9 +1482,9 @@ function gpt_handle_featured_image($post_id, $params) {
 }
 
 /**
- * Create or retrieve a WordPress user for a GPT API key and role.
- * Username: gpt_{gpt_label}
- * Email: {gpt_label}@{site_domain}
+ * Create or retrieve a WordPress user for a GPT label (name) and role.
+ * Username: gpt_{label}
+ * Email: {label}@{site_domain}
  * Role: as provided (gpt_publisher, gpt_editor, etc)
  * Marks user as non-human (meta: is_gpt_user = 1)
  *
@@ -1485,9 +1494,23 @@ function gpt_handle_featured_image($post_id, $params) {
  */
 function create_gpt_user($api_key, $role) {
     if (!$api_key || !$role) return false;
-    $api_key_sanitized = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($api_key));
-    $username = 'gpt_' . substr($api_key_sanitized, 0, 54); // 'gpt_' + 54 = 58 chars (WP max 60)
-    $email = $username . '@gpt.local';
+
+    // Get the GPT label for this API key (NOT just by role)
+    $gpts = gpt_get_preconfigured_gpts();
+    $all_keys = get_option('gpt_api_keys', []);
+    $label = null;
+    foreach ($all_keys as $key => $info) {
+        if ($key === $api_key && !empty($info['label'])) {
+            $label = $info['label'];
+            break;
+        }
+    }
+    if (!$label) $label = 'gptuser';
+
+    $site = gpt_get_selected_site(); // e.g. 'allcelebritiesworld.com'
+    $label_slug = strtolower(preg_replace('/[^a-z0-9\.]/', '', $label)); // viralia.gpt
+    $username = 'gpt_' . $label_slug; // gpt_viralia.gpt
+    $email = $label_slug . '@' . $site; // viralia.gpt@allcelebritiesworld.com
 
     // Try to find user by username or email
     $user = get_user_by('login', $username);
@@ -1499,7 +1522,6 @@ function create_gpt_user($api_key, $role) {
         if ($user->roles[0] !== $role) {
             $user->set_role($role);
         }
-        // Mark as GPT user
         update_user_meta($user->ID, 'is_gpt_user', 1);
         return $user->ID;
     }
@@ -1514,8 +1536,7 @@ function create_gpt_user($api_key, $role) {
     if ($user_obj) {
         $user_obj->set_role($role);
         update_user_meta($user_id, 'is_gpt_user', 1);
-        // Optionally, set display_name for clarity
-        wp_update_user(['ID' => $user_id, 'display_name' => 'GPT API User']);
+        wp_update_user(['ID' => $user_id, 'display_name' => $label . ' (GPT API)']);
         return $user_id;
     }
     return false;
