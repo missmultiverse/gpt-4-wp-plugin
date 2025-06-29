@@ -48,6 +48,8 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 2. **Activate the plugin** in the WordPress admin (Plugins > Installed Plugins).
 3. **Go to Tools > GPT API Keys** in the WordPress admin to select your site and view pre-configured GPTs. Generate additional API keys as needed.
 4. **Use the API key** as the `gpt-api-key` header in your HTTP requests or GPT/ChatGPT plugin configuration.
+   The plugin will automatically apply the role associated with the API key, so the
+   `gpt_role` parameter is optional.
 5. **Connect GPT/ChatGPT** by providing the dynamic manifest URL: `https://your-site.com/wp-json/gpt/v1/ai-plugin.json`.
 6. **Test endpoints** using tools like Postman, curl, or directly from your GPT/ChatGPT plugin.
 
@@ -67,6 +69,8 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 ## REST API Endpoints
 
 All endpoints require the `gpt-api-key` header with a valid API key.
+The role tied to the API key is used automatically; include `gpt_role` only if you
+need to explicitly specify it.
 
 ### 1. **Ping (Agent → WordPress)**
 - **GET** `/wp-json/gpt/v1/post`
