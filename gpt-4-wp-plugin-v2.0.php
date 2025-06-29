@@ -955,6 +955,23 @@ function gpt_create_post_endpoint($request)
             return gpt_error_response('Failed to set featured image', 500);
         }
     }
+    // --- ENHANCE: Support featured_media param in post endpoints ---
+    // In gpt_create_post_endpoint and gpt_edit_post_endpoint, after post creation/update:
+    // In gpt_create_post_endpoint:
+    // After post is created and $post_id is available:
+    if (!empty($params['featured_media'])) {
+        $featured_id = intval($params['featured_media']);
+        $attachment = get_post($featured_id);
+        if ($attachment && $attachment->post_type === 'attachment' && wp_attachment_is_image($featured_id)) {
+            $thumb_result = set_post_thumbnail($post_id, $featured_id);
+            if (is_wp_error($thumb_result)) {
+                return gpt_error_response('Failed to set featured image: ' . $thumb_result->get_error_message(), 400);
+            }
+        } else {
+            return gpt_error_response('featured_media must be an image attachment ID', 400);
+        }
+    }
+
     $meta_response = [];
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
@@ -1145,6 +1162,22 @@ function gpt_edit_post_endpoint($request)
         return $author_check;
     }
 
+    // --- ENHANCE: Support featured_media param in post endpoints ---
+    // In gpt_create_post_endpoint and gpt_edit_post_endpoint, after post creation/update:
+    // In gpt_create_post_endpoint:
+    // After post is created and $post_id is available:
+    if (!empty($params['featured_media'])) {
+        $featured_id = intval($params['featured_media']);
+        $attachment = get_post($featured_id);
+        if ($attachment && $attachment->post_type === 'attachment' && wp_attachment_is_image($featured_id)) {
+            $thumb_result = set_post_thumbnail($post_id, $featured_id);
+            if (is_wp_error($thumb_result)) {
+                return gpt_error_response('Failed to set featured image: ' . $thumb_result->get_error_message(), 400);
+            }
+        } else {
+            return gpt_error_response('featured_media must be an image attachment ID', 400);
+        }
+    }
 
     // Apply categories
     if (!empty($params['categories'])) {
@@ -1214,22 +1247,20 @@ function gpt_upload_media_endpoint($request)
     if (!in_array($role, ['gpt_admin', 'gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
         return gpt_error_response('Invalid role', 403);
     }
-
     $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
     $user_id = create_gpt_user($api_key, $role);
     wp_set_current_user($user_id);
     if (!$user_id || !user_can($user_id, 'upload_files')) {
         return gpt_error_response('User cannot upload files', 403);
     }
-
     $post_id = $request->get_param('post_id');
     $featured = $request->get_param('featured');
-
+    $insert_inline = $request->get_param('insert_inline');
+    $position = $request->get_param('position') ?: 'bottom';
     $uploads = wp_upload_dir();
     if (!empty($uploads['error']) || !is_writable($uploads['path'])) {
         return gpt_error_response('Upload directory is not writable.', 500);
     }
-
     $allowed_mimes = array_unique(array_values(get_allowed_mime_types()));
     $dangerous_mimes = [
         'text/html',
@@ -1246,7 +1277,6 @@ function gpt_upload_media_endpoint($request)
             return strpos($mime, 'image/') === 0;
         });
     }
-
     // --- Support direct file uploads via $_FILES['file'] ---
     if (!empty($_FILES['file']) && isset($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
         $file = $_FILES['file'];
@@ -1280,9 +1310,27 @@ function gpt_upload_media_endpoint($request)
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
         wp_update_attachment_metadata($attach_id, $attach_data);
-        return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
+        $img_url = wp_get_attachment_url($attach_id);
+        // --- Inline insertion ---
+        $inline_result = null;
+        if ($post_id && filter_var($insert_inline, FILTER_VALIDATE_BOOLEAN)) {
+            $inline_result = gpt_insert_image_inline($post_id, $img_url, $position);
+        }
+        // --- Featured image assignment ---
+        $featured_result = null;
+        if ($post_id && filter_var($featured, FILTER_VALIDATE_BOOLEAN)) {
+            $featured_result = set_post_thumbnail($post_id, $attach_id);
+            if (is_wp_error($featured_result)) {
+                return gpt_error_response('Failed to set featured image: ' . $featured_result->get_error_message(), 400);
+            }
+        }
+        return [
+            'attachment_id' => $attach_id,
+            'url' => $img_url,
+            'inline' => $inline_result,
+            'featured' => $featured_result ? true : false
+        ];
     }
-
     // --- Support image_url parameter ---
     $image_url = $request->get_param('image_url');
     if ($image_url) {
@@ -1353,7 +1401,7 @@ function gpt_upload_media_endpoint($request)
             'post_content' => '',
             'post_status' => 'inherit',
             'post_author' => $user_id,
-        ];
+        };
         if ($post_id) {
             $attachment['post_parent'] = intval($post_id);
         }
@@ -1361,373 +1409,89 @@ function gpt_upload_media_endpoint($request)
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
         wp_update_attachment_metadata($attach_id, $attach_data);
-        return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
+        $img_url = wp_get_attachment_url($attach_id);
+        // --- Inline insertion ---
+        $inline_result = null;
+        if ($post_id && filter_var($insert_inline, FILTER_VALIDATE_BOOLEAN)) {
+            $inline_result = gpt_insert_image_inline($post_id, $img_url, $position);
+        }
+        // --- Featured image assignment ---
+        $featured_result = null;
+        if ($post_id && filter_var($featured, FILTER_VALIDATE_BOOLEAN)) {
+            $featured_result = set_post_thumbnail($post_id, $attach_id);
+            if (is_wp_error($featured_result)) {
+                return gpt_error_response('Failed to set featured image: ' . $featured_result->get_error_message(), 400);
+            }
+        }
+        return [
+            'attachment_id' => $attach_id,
+            'url' => $img_url,
+            'inline' => $inline_result,
+            'featured' => $featured_result ? true : false
+        ];
     }
     return gpt_error_response('No image URL or file provided', 400);
 }
 
-
-// --- REST: Dynamic OpenAPI Schema Endpoint ---
-function gpt_openapi_schema_handler()
-{
-    $site_url = get_site_url();
-    $schema = [
-        'openapi' => '3.1.0',
-        'info' => [
-            'title' => 'GPT-4-WP-Plugin v2 API',
-            'version' => '2.0.0',
-            'description' => 'Secure REST API for WordPress content creation and management by GPTs/clients.'
-        ],
-        'servers' => [
-            ['url' => $site_url . '/wp-json/gpt/v1']
-        ],
-        'components' => [
-            'securitySchemes' => [
-                'ApiKeyAuth' => [
-                    'type' => 'apiKey',
-                    'in' => 'header',
-                    'name' => 'gpt-api-key',
-                ]
-            ],
-            'schemas' => [
-                'PostInput' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
-                    ]
-                ]
-            ]
-        ],
-        'security' => [['ApiKeyAuth' => []]],
-        'paths' => [
-            '/post' => [
-                'post' => []
-            ],
-            '/post/{id}' => [
-                'post' => []
-            ],
-            '/media' => []
-        ]
-    ];
-    return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
+// --- Helper: Insert image inline in post content ---
+if (!function_exists('gpt_insert_image_inline')) {
+    function gpt_insert_image_inline($post_id, $img_url, $position = 'bottom') {
+        $post = get_post($post_id);
+        if (!$post) {
+            return 'Post not found';
+        }
+        $img_html = '<img src="' . esc_url($img_url) . '" alt="" style="max-width:100%;height:auto;" />';
+        $content = $post->post_content;
+        switch (strtolower($position)) {
+            case 'top':
+                $new_content = $img_html . "\n\n" . ltrim($content);
+                break;
+            case 'replace':
+                $new_content = $img_html;
+                break;
+            case 'bottom':
+            default:
+                $new_content = rtrim($content) . "\n\n" . $img_html;
+                break;
+        }
+        $result = wp_update_post([
+            'ID' => $post_id,
+            'post_content' => $new_content
+        ], true);
+        if (is_wp_error($result)) {
+            return 'Failed to update post content: ' . $result->get_error_message();
+        }
+        return 'Image inserted inline.';
+    }
 }
 
-// --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
-function gpt_ai_plugin_manifest_handler()
-{
-    $site_url = get_site_url();
-    $plugin_url = rtrim(plugin_dir_url(__FILE__), '/');
-    $manifest = [
-        'schema_version' => 'v1',
-        'name_for_human' => 'GPT-4 WP Plugin v2.0',
-        'name_for_model' => 'gpt_4_wp_plugin_v2_0',
-        'description_for_human' => 'Create, edit, and manage WordPress posts and media via secure API. Version 2.0, single-file, minimal and secure.',
-        'description_for_model' => 'A secure, minimal REST API for WordPress (v2.0) that allows GPTs/clients to create, edit, and manage posts and media using API keys and role-based permissions. Supports Webmaster, Publisher, and Editor roles.',
-        'auth' => [
-            'key_name' => 'gpt-api-key',
-        ],
-        'api' => [
-            'url' => $site_url . '/wp-json/gpt/v1/openapi',
-        ]
-    ];
-    return new WP_REST_Response($manifest, 200, ['Content-Type' => 'application/json']);
-}
-
-// --- AJAX handler for Ping Site button ---
-add_action('wp_ajax_gpt_ping_site', function () {
-    if (!current_user_can('manage_options')) {
-        wp_send_json_error(['message' => 'Permission denied.']);
-    }
-    if (empty($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'gpt_ping_site_nonce')) {
-        wp_send_json_error(['message' => 'Invalid nonce.']);
-    }
-    $site_url = get_site_url();
-    $endpoint = $site_url . '/wp-json/gpt/v1/post';
-    $args = [
-        'timeout' => 5,
-    ];
-    $resp = wp_remote_post($endpoint, $args);
-    if (is_wp_error($resp)) {
-        wp_send_json_error(['message' => $resp->get_error_message()]);
-    }
-    $code = wp_remote_retrieve_response_code($resp);
-    $body = wp_remote_retrieve_body($resp);
-    if ($code === 401 || $code === 403) {
-        wp_send_json_success(['message' => 'Endpoint reachable, got expected auth error (' . $code . ')']);
-    } elseif ($code === 200) {
-        wp_send_json_success(['message' => 'Endpoint reachable, post created (200)']);
+// --- ENHANCE: Support featured_media param in post endpoints ---
+// In gpt_create_post_endpoint and gpt_edit_post_endpoint, after post creation/update:
+// In gpt_create_post_endpoint:
+// After post is created and $post_id is available:
+if (!empty($params['featured_media'])) {
+    $featured_id = intval($params['featured_media']);
+    $attachment = get_post($featured_id);
+    if ($attachment && $attachment->post_type === 'attachment' && wp_attachment_is_image($featured_id)) {
+        $thumb_result = set_post_thumbnail($post_id, $featured_id);
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response('Failed to set featured image: ' . $thumb_result->get_error_message(), 400);
+        }
     } else {
-        wp_send_json_error(['message' => 'Unexpected response: ' . $code]);
-    }
-});
-
-// ==========================================
-// --- START --- GPT Universal Action Route
-// ==========================================
-if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
-    error_log('✅ [WebMasterGPT] rest_api_init called');
-}
-
-add_action('rest_api_init', function () {
-    register_rest_route('gpt/v1', '/action', [
-        'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_action_handler'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
-    ]);
-});
-
-function gpt_action_handler($request)
-{
-    $params = $request->get_json_params();
-    $action = $params['action'] ?? null;
-
-    if (!$action) {
-        return new WP_Error('missing_action', 'No action specified', ['status' => 400]);
-    }
-
-    switch ($action) {
-        case 'ping':
-            return rest_ensure_response(['pong' => true]);
-
-        default:
-            return new WP_Error('unknown_action', 'Unrecognized action: ' . esc_html($action), ['status' => 400]);
+        return gpt_error_response('featured_media must be an image attachment ID', 400);
     }
 }
-// ========================================
-// --- END --- GPT Universal Action Route
-
-// --- File Management REST Endpoints (gpt_admin only) ---
-add_action('rest_api_init', function () {
-    // Read file
-    register_rest_route('gpt/v1', '/file', [
-        'methods' => 'GET',
-        'callback' => gpt_rest_api_error_wrapper('gpt_file_read_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
-        'args' => [
-            'path' => [
-                'required' => true,
-                'validate_callback' => function ($value) {
-                    return is_string($value) && $value !== '';
-                }
-            ]
-        ]
-    ]);
-    // Write file
-    register_rest_route('gpt/v1', '/file', [
-        'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_file_write_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role'
-    ]);
-    // Create directory
-   
-    register_rest_route('gpt/v1', '/dir', [
-        'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_dir_create_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role'
-    ]);
-    // List files/directories
-    register_rest_route('gpt/v1', '/ls', [
-        'methods' => 'GET',
-        'callback' => gpt_rest_api_error_wrapper('gpt_file_list_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
-        'args' => [
-            'path' => [
-                'required' => false,
-                'validate_callback' => function ($value) {
-                    return is_string($value);
-                }
-            ]
-        ]
-    ]);
-    // Delete file or directory
-    register_rest_route('gpt/v1', '/file', [
-        'methods' => 'DELETE',
-        'callback' => gpt_rest_api_error_wrapper('gpt_file_delete_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
-        'args' => [
-            'path' => [
-                'required' => true,
-                'validate_callback' => function ($value) {
-                    return is_string($value) && $value !== '';
-                }
-            ]
-        ]
-    ]);
-});
-
-function gpt_get_plugin_dir()
-{
-    return dirname(__FILE__);
-}
-
-function gpt_sanitize_excerpt($text)
-{
-    return wp_trim_words(wp_strip_all_tags($text));
-}
-
-function gpt_sanitize_plugin_path($path)
-{
-    $plugin_dir = realpath(gpt_get_plugin_dir());
-    $full_path = realpath($plugin_dir . '/' . ltrim($path, '/\\'));
-    if ($full_path && strpos($full_path, $plugin_dir) === 0) {
-        return $full_path;
-    }
-    return false;
-}
-
-function gpt_file_read_endpoint($request)
-{
-    $path = $request->get_param('path');
-    $file = gpt_sanitize_plugin_path($path);
-    if (!$file || !file_exists($file) || !is_file($file)) {
-        return gpt_error_response('File not found or access denied', 404);
-    }
-    $contents = file_get_contents($file);
-    if ($contents === false) {
-        return gpt_error_response('Failed to read file', 500);
-    }
-    return [
-        'path' => $path,
-        'content' => $contents
-    ];
-}
-
-function gpt_file_write_endpoint($request)
-{
-    $params = $request->get_json_params();
-    $path = $params['path'] ?? '';
-    $content = $params['content'] ?? '';
-    $file = gpt_sanitize_plugin_path($path);
-    if (!$file) {
-        return gpt_error_response('Invalid file path', 400);
-    }
-    if (file_exists($file) && !is_writable($file)) {
-        return gpt_error_response('File is not writable', 403);
-    }
-    $dir = dirname($file);
-    if (!is_dir($dir)) {
-        return gpt_error_response('Directory does not exist', 400);
-    }
-    $result = file_put_contents($file, $content);
-    if ($result === false) {
-        return gpt_error_response('Failed to write file', 500);
-    }
-    return [
-        'path' => $path,
-        'bytes_written' => $result
-    ];
-}
-
-function gpt_dir_create_endpoint($request)
-{
-    $params = $request->get_json_params();
-    $path = $params['path'] ?? '';
-    $dir = gpt_sanitize_plugin_path($path);
-    if (!$dir) {
-        return gpt_error_response('Invalid directory path', 400);
-    }
-    if (file_exists($dir)) {
-        return gpt_error_response('Directory already exists', 409);
-    }
-    if (!mkdir($dir, 0755, true)) {
-        return gpt_error_response('Failed to create directory', 500);
-    }
-    return [
-        'path' => $path,
-        'created' => true
-    ];
-}
-
-function gpt_file_list_endpoint($request)
-{
-    $path = $request->get_param('path') ?: '';
-    $dir = gpt_sanitize_plugin_path($path);
-    if (!$dir || !is_dir($dir)) {
-        return gpt_error_response('Directory not found or access denied', 404);
-    }
-    $result = gpt_list_dir_recursive($dir, $dir);
-    return [
-        'path' => $path,
-        'files' => $result
-    ];
-}
-
-function gpt_list_dir_recursive($base, $dir)
-{
-    $items = scandir($dir);
-    $result = [];
-    foreach ($items as $item) {
-        if ($item === '.' || $item === '..')
-            continue;
-        $full = $dir . DIRECTORY_SEPARATOR . $item;
-        $rel = ltrim(str_replace($base, '', $full), '/\\');
-        if (is_dir($full)) {
-            $result[] = [
-                'type' => 'dir',
-                'name' => $item,
-                'path' => $rel,
-                'children' => gpt_list_dir_recursive($base, $full)
-            ];
-        } else {
-            $result[] = [
-                'type' => 'file',
-                'name' => $item,
-                'path' => $rel,
-                'size' => filesize($full)
-            ];
+// In gpt_edit_post_endpoint:
+// After post is updated and $result is available:
+if (!empty($params['featured_media'])) {
+    $featured_id = intval($params['featured_media']);
+    $attachment = get_post($featured_id);
+    if ($attachment && $attachment->post_type === 'attachment' && wp_attachment_is_image($featured_id)) {
+        $thumb_result = set_post_thumbnail($result, $featured_id);
+        if (is_wp_error($thumb_result)) {
+            return gpt_error_response('Failed to set featured image: ' . $thumb_result->get_error_message(), 400);
         }
-    }
-    return $result;
-}
-
-function gpt_file_delete_endpoint($request)
-{
-    $path = $request->get_param('path');
-    $file = gpt_sanitize_plugin_path($path);
-    if (!$file || !file_exists($file)) {
-        return gpt_error_response('File or directory not found or access denied', 404);
-    }
-    if (is_dir($file)) {
-        $success = gpt_rmdir_recursive($file);
-        if (!$success) {
-            return gpt_error_response('Failed to delete directory', 500);
-        }
-        return [
-            'path' => $path,
-            'deleted' => true,
-            'type' => 'dir'
-        ];
     } else {
-        if (!is_writable($file)) {
-            return gpt_error_response('File is not writable', 403);
-        }
-        if (!unlink($file)) {
-            return gpt_error_response('Failed to delete file', 500);
-        }
-        return [
-
-            'path' => $path,
-            'deleted' => true,
-            'type' => 'file'
-        ];
+        return gpt_error_response('featured_media must be an image attachment ID', 400);
     }
-}
-
-function gpt_rmdir_recursive($dir)
-{
-    if (!is_dir($dir)) {
-        return false;
-    }
-    $items = scandir($dir);
-    foreach ($items as $item) {
-        if ($item === '.' || $item === '..')
-            continue;
-        $path = $dir . DIRECTORY_SEPARATOR . $item;
-        if (is_dir($path)) {
-            gpt_rmdir_recursive($path);
-        } else {
-            unlink($path);
-        }
-    }
-    return rmdir($dir);
 }
