@@ -459,6 +459,34 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
     return $links; // ✅ THIS is what was missing
 });
 
+/**
+ * Permission callback for GPT REST API endpoints.
+ * Checks for a valid gpt-api-key header and (optionally) gpt_role.
+ * Returns true if authorized, false otherwise.
+ *
+ * @param WP_REST_Request $request
+ * @return bool
+ */
+function gpt_rest_permission_check_role($request) {
+    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    if (!$key) {
+        error_log('[GPT-4-WP-Plugin] Permission denied: Missing gpt-api-key header');
+        return false;
+    }
+    $role = gpt_get_role_for_key($key);
+    if (!$role) {
+        error_log('[GPT-4-WP-Plugin] Permission denied: Invalid API key');
+        return false;
+    }
+    // Optionally check for gpt_role param match (if present)
+    $requested_role = $request->get_param('gpt_role');
+    if ($requested_role && $requested_role !== $role) {
+        error_log("[GPT-4-WP-Plugin] Permission denied: API key role '{$role}' does not match requested role '{$requested_role}'");
+        return false;
+    }
+    return true;
+}
+
 // --- Helper: Validate API key and get role ---
 function gpt_get_role_for_key($key)
 {
