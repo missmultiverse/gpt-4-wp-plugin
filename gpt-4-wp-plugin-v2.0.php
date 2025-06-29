@@ -660,21 +660,32 @@ function gpt_create_post_endpoint($request)
 {
     gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
     $role = $request->get_param('gpt_role');
-    gpt_debug_log('[gpt_create_post_endpoint] Role', $role);
+    gpt_debug_log('[gpt_create_post_endpoint] Role from request', $role);
+    
+    // Check role validity
     if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
-        gpt_debug_log('[gpt_create_post_endpoint] Invalid role', $role);
+        gpt_debug_log('[gpt_create_post_endpoint] Invalid role found', $role);
         return gpt_error_response('Invalid role', 403);
     }
+
     $params = $request->get_json_params();
     gpt_debug_log('[gpt_create_post_endpoint] Params', $params);
+
+    // Check if API key is valid
     $api_key = $request->get_header('gpt-api-key');
     gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
+
+    // Retrieve and check user ID based on API key and role
     $user_id = create_gpt_user($api_key, $role);
-    gpt_debug_log('[gpt_create_post_endpoint] User ID', $user_id);
+    gpt_debug_log('[gpt_create_post_endpoint] User ID after user creation', $user_id);
+
+    // If user creation failed, log and return error
     if (!$user_id) {
         gpt_debug_log('[gpt_create_post_endpoint] Failed to create or retrieve user for API key', $api_key);
         return gpt_error_response('Failed to create user', 500);
     }
+
+    // Proceed with creating the post
     $post_data = [
         'post_title' => sanitize_text_field($params['title'] ?? ''),
         'post_content' => wp_kses_post($params['content'] ?? ''),
@@ -686,13 +697,16 @@ function gpt_create_post_endpoint($request)
         'post_author' => $user_id,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '',
     ];
-    gpt_debug_log('[gpt_create_post_endpoint] Post data', $post_data);
+    gpt_debug_log('[gpt_create_post_endpoint] Post data prepared', $post_data);
+
     $post_id = wp_insert_post($post_data);
     gpt_debug_log('[gpt_create_post_endpoint] wp_insert_post result', $post_id);
+
     if (is_wp_error($post_id)) {
         gpt_debug_log('[gpt_create_post_endpoint] Error inserting post', $post_id->get_error_message());
         return $post_id;
     }
+
     if (!empty($params['categories'])) {
         gpt_debug_log('[gpt_create_post_endpoint] Setting categories', $params['categories']);
         wp_set_post_categories($post_id, array_map('intval', (array) $params['categories']));
@@ -701,18 +715,23 @@ function gpt_create_post_endpoint($request)
         gpt_debug_log('[gpt_create_post_endpoint] Setting tags', $params['tags']);
         wp_set_post_tags($post_id, (array) $params['tags']);
     }
-    gpt_debug_log('[gpt_create_post_endpoint] Handling featured image');
+
+    // Handle featured image
     gpt_handle_featured_image($post_id, $params);
+
+    // Handle custom metadata
     if (!empty($params['meta']) && is_array($params['meta'])) {
         gpt_debug_log('[gpt_create_post_endpoint] Setting meta', $params['meta']);
         foreach ($params['meta'] as $key => $value) {
             update_post_meta($post_id, sanitize_key($key), sanitize_text_field($value));
         }
     }
+
     gpt_debug_log('[gpt_create_post_endpoint] Returning post_id', $post_id);
     return ['post_id' => $post_id];
 }
 // --- END --- REST: Create Post ---
+
 
 
 // --- REST: Edit Post ---
@@ -1493,9 +1512,9 @@ function gpt_handle_featured_image($post_id, $params) {
  * @return int|false User ID or false on failure
  */
 function create_gpt_user($api_key, $role) {
-    if (!$api_key || !$role) return false;
-
-    // Get the GPT label for this API key (NOT just by role)
+    gpt_debug_log('[create_gpt_user] API key: ' . $api_key, $role);
+    
+    // Get the GPT label for this API key
     $gpts = gpt_get_preconfigured_gpts();
     $all_keys = get_option('gpt_api_keys', []);
     $label = null;
@@ -1505,33 +1524,41 @@ function create_gpt_user($api_key, $role) {
             break;
         }
     }
+    gpt_debug_log('[create_gpt_user] Label found for key: ', $label);
+
     if (!$label) $label = 'gptuser';
 
-    $site = gpt_get_selected_site(); // e.g. 'allcelebritiesworld.com'
-    $label_slug = strtolower(preg_replace('/[^a-z0-9\.]/', '', $label)); // viralia.gpt
-    $username = 'gpt_' . $label_slug; // gpt_viralia.gpt
-    $email = $label_slug . '@' . $site; // viralia.gpt@allcelebritiesworld.com
+    $site = gpt_get_selected_site();
+    $label_slug = strtolower(preg_replace('/[^a-z0-9\.]/', '', $label)); 
+    $username = 'gpt_' . $label_slug;
+    $email = $label_slug . '@' . $site;
 
-    // Try to find user by username or email
+    // Check for existing user by login or email
     $user = get_user_by('login', $username);
     if (!$user) {
         $user = get_user_by('email', $email);
     }
+    gpt_debug_log('[create_gpt_user] Existing user', $user ? $user->ID : 'None');
+
     if ($user) {
-        // Update role if needed
         if ($user->roles[0] !== $role) {
+            gpt_debug_log('[create_gpt_user] User role mismatch', $user->roles[0]);
             $user->set_role($role);
         }
         update_user_meta($user->ID, 'is_gpt_user', 1);
         return $user->ID;
     }
-
-    // Create new user
+    
+    // Create new user if not found
     $password = wp_generate_password(32, true, true);
     $user_id = wp_create_user($username, $password, $email);
+    gpt_debug_log('[create_gpt_user] Created new user', $user_id);
+
     if (is_wp_error($user_id) || !$user_id) {
+        gpt_debug_log('[create_gpt_user] User creation failed', $user_id);
         return false;
     }
+
     $user_obj = get_user_by('id', $user_id);
     if ($user_obj) {
         $user_obj->set_role($role);
@@ -1539,5 +1566,7 @@ function create_gpt_user($api_key, $role) {
         wp_update_user(['ID' => $user_id, 'display_name' => $label . ' (GPT API)']);
         return $user_id;
     }
+
     return false;
 }
+
