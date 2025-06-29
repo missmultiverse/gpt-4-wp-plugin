@@ -1474,8 +1474,8 @@ function gpt_handle_featured_image($post_id, $params) {
 
 /**
  * Create or retrieve a WordPress user for a GPT API key and role.
- * Username: gpt_{api_key} (max 60 chars, sanitized)
- * Email: gpt_{api_key}@gpt.local (unique dummy email)
+ * Username: gpt_{gpt_label}
+ * Email: {gpt_label}@{site_domain}
  * Role: as provided (gpt_publisher, gpt_editor, etc)
  * Marks user as non-human (meta: is_gpt_user = 1)
  *
