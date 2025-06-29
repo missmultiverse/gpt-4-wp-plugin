@@ -606,23 +606,13 @@ function gpt_create_post_endpoint($request)
         return gpt_error_response('Invalid role', 403);
     }
     $params = $request->get_json_params();
-
-    // --- Debugging Step: Log the start of the post creation process
     error_log("Starting post creation for API key: " . $request->get_header('gpt-api-key'));
-
-    // Get or create the user at this stage of post creation
-    $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role); // Create user if necessary
-
-    // --- Debugging Step: Log the user creation process
+    $user_id = create_gpt_user($request->get_header('gpt-api-key'), $role);
     if (!$user_id) {
         error_log("Failed to create or retrieve user for API key: " . $request->get_header('gpt-api-key'));
         return gpt_error_response('Failed to create user', 500);
     }
-
-    // --- Debugging Step: Log the user ID after creation
     error_log("User created/retrieved successfully with ID: " . $user_id);
-
-    // Now proceed to create the post
     $post_data = [
         'post_title' => sanitize_text_field($params['title'] ?? ''),
         'post_content' => wp_kses_post($params['content'] ?? ''),
@@ -631,45 +621,53 @@ function gpt_create_post_endpoint($request)
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
         'post_name' => isset($params['slug']) ? sanitize_title($params['slug']) : '',
-        'post_author' => $user_id, // Set the author as the GPT user
+        'post_author' => $user_id,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : '',
     ];
-
     if ($role === 'gpt_editor') {
         $post_data['post_status'] = 'draft';
     }
-
-    // --- Debugging Step: Log the post data before insertion
     error_log("Inserting post with data: " . print_r($post_data, true));
-
     $post_id = wp_insert_post($post_data);
     if (is_wp_error($post_id)) {
         error_log("Error inserting post: " . $post_id->get_error_message());
         return $post_id;
     }
-
-    // --- Debugging Step: Log successful post creation
     error_log("Post created successfully with ID: " . $post_id);
-
-    // Additional handling for categories, tags, featured image, and metadata
     if (!empty($params['categories'])) {
         wp_set_post_categories($post_id, array_map('intval', (array) $params['categories']));
     }
     if (!empty($params['tags'])) {
         wp_set_post_tags($post_id, (array) $params['tags']);
     }
-    if (!empty($params['featured_image'])) {
-        set_post_thumbnail($post_id, intval($params['featured_image']));
+    // --- FEATURED IMAGE LOGIC (robust, with debug) ---
+    if (!empty($params['featured_media'])) {
+        $featured_id = intval($params['featured_media']);
+        $attachment = get_post($featured_id);
+        if ($attachment && $attachment->post_type === 'attachment') {
+            if (wp_attachment_is_image($featured_id)) {
+                set_post_thumbnail($post_id, $featured_id);
+                error_log("✅ Featured image {$featured_id} set for post {$post_id}");
+                $thumb_id = get_post_thumbnail_id($post_id);
+                if ($thumb_id == $featured_id) {
+                    error_log("✅ Verified: get_post_thumbnail_id matches featured_media ({$thumb_id})");
+                } else {
+                    error_log("❌ Mismatch: get_post_thumbnail_id({$post_id}) returned {$thumb_id}, expected {$featured_id}");
+                }
+            } else {
+                error_log("❌ Attachment {$featured_id} is not an image (wp_attachment_is_image returned false)");
+            }
+        } else {
+            error_log("❌ Attachment {$featured_id} not found or not an attachment");
+        }
     }
     if (!empty($params['meta']) && is_array($params['meta'])) {
         foreach ($params['meta'] as $key => $value) {
             update_post_meta($post_id, sanitize_key($key), sanitize_text_field($value));
         }
     }
-
     return ['post_id' => $post_id];
 }
-
 // --- END --- REST: Create Post ---
 
 
@@ -677,31 +675,23 @@ function gpt_create_post_endpoint($request)
 function gpt_edit_post_endpoint($request)
 {
     $role = $request->get_param('gpt_role');
-    $id = (int) $request->get_param('id');  // Corrected usage of get_param()
+    $id = (int) $request->get_param('id');
     $params = $request->get_json_params();
-
     error_log("Attempting to edit post ID: $id with role: $role");
-
     $post = get_post($id);
     if (!$post) {
         error_log("Post not found with ID: $id");
         return gpt_error_response('Post not found', 404);
     }
-
-    // Check user role permissions
     if ($role === 'gpt_editor' && $post->post_status !== 'draft') {
         error_log("Editor role cannot edit published posts. Post ID: $id");
         return gpt_error_response('Editors can only edit drafts', 403);
     }
-
-    // Validate post status
     $allowed_statuses = ['publish', 'draft', 'pending', 'private'];
     if (isset($params['post_status']) && !in_array($params['post_status'], $allowed_statuses)) {
         error_log("Invalid post status: " . $params['post_status']);
         return gpt_error_response('Invalid post status', 400);
     }
-
-    // Post data to update
     $update = [
         'ID' => $id,
         'post_title' => isset($params['title']) ? sanitize_text_field($params['title']) : $post->post_title,
@@ -713,22 +703,46 @@ function gpt_edit_post_endpoint($request)
         'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
-
-    // Debug log before post update
     error_log("Post update data: " . print_r($update, true));
-
-    // Perform the update
     $result = wp_update_post($update, true);
     if (is_wp_error($result)) {
         error_log("Error updating post: " . $result->get_error_message());
         return gpt_error_response('Failed to update post', 500);
     }
-
-    // Get the updated post to check its status
+    // --- FEATURED IMAGE LOGIC (robust, with debug) ---
+    if (!empty($params['featured_media'])) {
+        $featured_id = intval($params['featured_media']);
+        $attachment = get_post($featured_id);
+        if ($attachment && $attachment->post_type === 'attachment') {
+            if (wp_attachment_is_image($featured_id)) {
+                set_post_thumbnail($result, $featured_id);
+                error_log("✅ Featured image {$featured_id} set for post {$result}");
+                $thumb_id = get_post_thumbnail_id($result);
+                if ($thumb_id == $featured_id) {
+                    error_log("✅ Verified: get_post_thumbnail_id matches featured_media ({$thumb_id})");
+                } else {
+                    error_log("❌ Mismatch: get_post_thumbnail_id({$result}) returned {$thumb_id}, expected {$featured_id}");
+                }
+            } else {
+                error_log("❌ Attachment {$featured_id} is not an image (wp_attachment_is_image returned false)");
+            }
+        } else {
+            error_log("❌ Attachment {$featured_id} not found or not an attachment");
+        }
+    }
+    if (!empty($params['categories'])) {
+        wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
+    }
+    if (!empty($params['tags'])) {
+        wp_set_post_tags($result, (array) $params['tags']);
+    }
+    if (!empty($params['meta']) && is_array($params['meta'])) {
+        foreach ($params['meta'] as $key => $value) {
+            update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
+        }
+    }
     $updated_post = get_post($result);
     error_log("Updated post status: " . $updated_post->post_status);
-
-    // Check if the post is published or not
     if ($updated_post->post_status === 'publish') {
         return new WP_REST_Response([
             'post_id' => $result,
@@ -742,26 +756,8 @@ function gpt_edit_post_endpoint($request)
             'message' => 'Post updated, but pending approval for publication.'
         ], 200);
     }
-
-    // Update categories
-    if (!empty($params['categories'])) {
-        wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
-    }
-    if (!empty($params['tags'])) {
-        wp_set_post_tags($result, (array) $params['tags']);
-    }
-    if (!empty($params['featured_image'])) {
-        set_post_thumbnail($result, intval($params['featured_image']));
-    }
-    if (!empty($params['meta']) && is_array($params['meta'])) {
-        foreach ($params['meta'] as $key => $value) {
-            update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
-        }
-    }
-
-    return ['post_id' => $result];
 }
-
+// --- END --- REST: Edit Post ---
 
 
 // --- REST: Upload Media ---
