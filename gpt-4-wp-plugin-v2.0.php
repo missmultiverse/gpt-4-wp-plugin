@@ -1471,3 +1471,52 @@ function gpt_handle_featured_image($post_id, $params) {
         error_log("[GPT-4-WP-Plugin] No valid featured image set for post {$post_id}");
     }
 }
+
+/**
+ * Create or retrieve a WordPress user for a GPT API key and role.
+ * Username: gpt_{api_key} (max 60 chars, sanitized)
+ * Email: gpt_{api_key}@gpt.local (unique dummy email)
+ * Role: as provided (gpt_publisher, gpt_editor, etc)
+ * Marks user as non-human (meta: is_gpt_user = 1)
+ *
+ * @param string $api_key
+ * @param string $role
+ * @return int|false User ID or false on failure
+ */
+function create_gpt_user($api_key, $role) {
+    if (!$api_key || !$role) return false;
+    $api_key_sanitized = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($api_key));
+    $username = 'gpt_' . substr($api_key_sanitized, 0, 54); // 'gpt_' + 54 = 58 chars (WP max 60)
+    $email = $username . '@gpt.local';
+
+    // Try to find user by username or email
+    $user = get_user_by('login', $username);
+    if (!$user) {
+        $user = get_user_by('email', $email);
+    }
+    if ($user) {
+        // Update role if needed
+        if ($user->roles[0] !== $role) {
+            $user->set_role($role);
+        }
+        // Mark as GPT user
+        update_user_meta($user->ID, 'is_gpt_user', 1);
+        return $user->ID;
+    }
+
+    // Create new user
+    $password = wp_generate_password(32, true, true);
+    $user_id = wp_create_user($username, $password, $email);
+    if (is_wp_error($user_id) || !$user_id) {
+        return false;
+    }
+    $user_obj = get_user_by('id', $user_id);
+    if ($user_obj) {
+        $user_obj->set_role($role);
+        update_user_meta($user_id, 'is_gpt_user', 1);
+        // Optionally, set display_name for clarity
+        wp_update_user(['ID' => $user_id, 'display_name' => 'GPT API User']);
+        return $user_id;
+    }
+    return false;
+}
