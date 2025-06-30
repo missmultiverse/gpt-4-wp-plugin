@@ -785,14 +785,19 @@ function gpt_create_post_endpoint($request)
     $param_role = $request->get_param('gpt_role');
 
     // --- Begin normalization and granular debug logging ---
-    gpt_debug_log('[gpt_create_post_endpoint] Raw role from key', $role);
-    gpt_debug_log('[gpt_create_post_endpoint] Raw param_role', $param_role);
     $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
     $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
-    gpt_debug_log('[gpt_create_post_endpoint] Normalized role', $role_normalized);
-    gpt_debug_log('[gpt_create_post_endpoint] Normalized param_role', $param_role_normalized);
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
-    gpt_debug_log('[gpt_create_post_endpoint] Allowed roles', $allowed_roles);
+
+    // Log available roles for debugging
+    gpt_debug_log('[gpt_create_post_endpoint] Available roles', $allowed_roles);
+    // Log the role being passed for validation
+    gpt_debug_log('[gpt_create_post_endpoint] Role from API key', $role);
+    // Log the normalized role for final validation
+    gpt_debug_log('[gpt_create_post_endpoint] Normalized role', $role_normalized);
+    // Log the requested role (in case there's a mismatch)
+    gpt_debug_log('[gpt_create_post_endpoint] Requested role', $param_role);
+    gpt_debug_log('[gpt_create_post_endpoint] Normalized requested role', $param_role_normalized);
 
     // Only block if the API key's role is not allowed
     if (!in_array($role_normalized, $allowed_roles, true)) {
@@ -807,15 +812,8 @@ function gpt_create_post_endpoint($request)
             'role_normalized' => $role_normalized
         ]);
     }
-    if (!$role_normalized) {
-        $role_normalized = $param_role_normalized; // fallback if option lookup failed
-    }
-    gpt_debug_log('[gpt_create_post_endpoint] Effective normalized role', $role_normalized);
 
-    if (!in_array($role_normalized, $allowed_roles, true)) {
-        gpt_debug_log('[gpt_create_post_endpoint] Invalid role found after normalization', $role_normalized);
-        return gpt_error_response('Invalid role', 403);
-    }
+    gpt_debug_log('[gpt_create_post_endpoint] Effective normalized role', $role_normalized);
 
     $params = $request->get_json_params();
     gpt_debug_log('[gpt_create_post_endpoint] Params', $params);
