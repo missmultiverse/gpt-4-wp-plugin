@@ -137,7 +137,7 @@ function gpt_api_keys_page()
         'gpt_publisher' => ['read', 'edit_posts', 'publish_posts', 'upload_files', 'edit_others_posts', 'delete_posts'],
         'gpt_editor' => ['read', 'edit_posts', 'upload_files'],
     ];
-    $pre_gpts = gpt_get_preconfigured_gpts();
+    $pre_gpts = gpt_get_preconfigured_gpts(); // still used elsewhere if needed
     $sites = gpt_get_sites_list();
     // --- Handle site selection (single handler, DRY) ---
     if (isset($_POST['gpt_selected_site'])) {
@@ -178,26 +178,6 @@ function gpt_api_keys_page()
         echo '</ul></div>';
     }
     echo '</div>';
-    // --- UI: Pre-configured GPTs table ---
-    echo '<h2>Pre-configured GPTs (Auto-linked to all sites)</h2>';
-    echo '<table class="widefat"><thead><tr><th>Label</th><th>Role</th><th>API Key</th></tr></thead><tbody>';
-    $all_keys = get_option('gpt_api_keys', []);
-    foreach ($pre_gpts as $gpt) {
-        $api_key = '';
-        // Find the API key for this GPT by label (case-insensitive match)
-        foreach ($all_keys as $key => $info) {
-            if (isset($info['label']) && strtolower($info['label']) === strtolower($gpt['label'])) {
-                $api_key = $key;
-                break;
-            }
-        }
-        echo '<tr>';
-        echo '<td>' . esc_html($gpt['label']) . '</td>';
-        echo '<td>' . esc_html($roles[$gpt['role']] ?? $gpt['role']) . '</td>';
-        echo '<td>' . ($api_key ? '<code>' . esc_html($api_key) . '</code>' : '<span style="color:#888;">(not generated)</span>') . '</td>';
-        echo '</tr>';
-    }
-    echo '</tbody></table>';
     // --- UI: Key management and status (existing code follows) ---
     // Handle form submissions
     if (isset($_POST['gpt_generate_key'], $_POST['gpt_role']) && check_admin_referer('gpt_api_key_action', 'gpt_api_key_nonce')) {
@@ -434,26 +414,6 @@ function gpt_api_keys_page()
                                 <button type="submit" name="gpt_revoke_key" class="button">Revoke</button>
                             </form>
                         </td>
-                    </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        <!-- --- Pre-configured GPTs Table --- -->
-        <h2>Pre-configured GPTs (Auto-linked to all sites)</h2>
-        <table class="widefat">
-            <thead>
-                <tr>
-                    <th>Label</th>
-                    <th>Role</th>
-                    <th>API Key</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($pre_gpts as $gpt): ?>
-                    <tr>
-                        <td><?php echo esc_html($gpt['label']); ?></td>
-                        <td><?php echo esc_html($roles[$gpt['role']] ?? $gpt['role']); ?></td>
-                        <td><?php echo esc_html($gpt['api_key'] ?? ''); ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
