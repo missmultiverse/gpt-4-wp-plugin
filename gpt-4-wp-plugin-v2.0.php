@@ -14,6 +14,38 @@
 // Each section below is clearly delimited and thoroughly documented for clarity.
 //
 // ============================================================================
+// Plugin header information
+/*
+Plugin Name: GPT-4 WP Plugin
+Description: A plugin to integrate GPT-4 with WordPress.
+Version: 1.0
+Author: Your Name
+*/
+
+// Include debugging code at the start of the plugin, just after the plugin is initialized
+add_action('admin_menu', function() {
+    add_menu_page('GPT Debug', 'GPT Debug', 'manage_options', 'gpt-debug', 'gpt_debug_page');
+});
+
+// Debug page to show all stored API keys and roles
+function gpt_debug_page() {
+    // Retrieve stored API keys
+    $api_keys = get_option('gpt_api_keys', []);
+
+    // Output the keys (either directly in the page or log them)
+    echo '<h1>GPT API Keys Debug</h1>';
+    echo '<pre>';
+    print_r($api_keys); // This will print all stored API keys and their associated roles
+    echo '</pre>';
+}
+
+// This will ensure the plugin is properly initialized and output to the screen
+function gpt_plugin_initialization() {
+    // This is where you'd want to see the debug output if you're testing it globally
+    $api_keys = get_option('gpt_api_keys', []);
+    error_log("GPT API Keys: " . print_r($api_keys, true)); // Log to debug.log for admin viewing
+}
+add_action('init', 'gpt_plugin_initialization');  // Hooking into 'init' to print the data when WordPress initializes
 
 // -----------------------------------------------------------------------------
 // 1. Plugin Header and Metadata
@@ -121,9 +153,11 @@ function gpt_rest_api_error_wrapper($callback)
 /**
  * Registers custom GPT roles on plugin activation.
  *
- * This hook creates the three supported roles (Webmaster, Publisher, Editor),
- * each with a distinct set of capabilities. These roles are used for API key
- * assignment and permission checks throughout the plugin. No legacy roles are added.
+ * This hook creates the four supported roles (Administrator, Webmaster,
+ * Publisher, Editor), each with a distinct set of capabilities. These roles
+ * are used for API key
+ * assignment and permission checks throughout the plugin. No legacy roles 
+ * are added.
  */
 register_activation_hook(__FILE__, function () {
     add_role('gpt_admin', 'GPT Administrator', [
@@ -204,20 +238,39 @@ function gpt_api_keys_page()
 {
     if (!current_user_can('manage_options'))
         return;
+    
     $roles = [
         'gpt_admin' => 'Administrator',
         'gpt_webmaster' => 'Webmaster',
         'gpt_publisher' => 'Publisher',
         'gpt_editor' => 'Editor',
     ];
+    
     $role_caps = [
         'gpt_admin' => ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts', 'gpt_manage_files'],
         'gpt_webmaster' => ['read', 'edit_posts', 'publish_posts', 'manage_options', 'upload_files', 'edit_others_posts', 'delete_posts', 'delete_others_posts'],
         'gpt_publisher' => ['read', 'edit_posts', 'publish_posts', 'upload_files', 'edit_others_posts', 'delete_posts'],
         'gpt_editor' => ['read', 'edit_posts', 'upload_files'],
     ];
-    $pre_gpts = gpt_get_preconfigured_gpts(); // still used elsewhere if needed
+
+
+// Add logo and plugin name at the top using an emoji
+echo '<div style="text-align: center; margin-bottom: 30px; padding-top: 20px;">';
+
+// Use an emoji as a logo
+echo '<div style="font-size: 4em; line-height: 1; color: #4CAF50; margin-bottom: 10px;">🚀</div>';
+
+echo '<h1 style="font-family: Arial, sans-serif; font-size: 2.5em; color: #333; font-weight: bold; margin-top: 10px;">GPT-4 WP Plugin</h1>';
+echo '<p style="font-family: Arial, sans-serif; font-size: 1.1em; color: #666;">A simple and powerful WordPress integration for GPT-4</p>';
+echo '</div>';
+
+    
+    // Add some space before the Select Site dropdown
+    echo '<div style="margin-bottom: 20px;"></div>';
+    
+    // Get the list of sites
     $sites = gpt_get_sites_list();
+    
     // --- Handle site selection (single handler, DRY) ---
     if (isset($_POST['gpt_selected_site'])) {
         $selected_site = sanitize_text_field($_POST['gpt_selected_site']);
@@ -226,6 +279,7 @@ function gpt_api_keys_page()
     }
     $selected_site = gpt_get_selected_site();
     $site_url = 'https://' . $selected_site;
+
     // --- UI: Site selection dropdown ---
     echo '<form method="post" style="margin-bottom:20px;">';
     echo '<label for="gpt_selected_site"><strong>Select Site:</strong></label> ';
@@ -595,19 +649,6 @@ function gpt_get_role_for_key($key)
  * These functions provide the always-present GPT client labels and the list of
  * supported domains for site selection. Used for admin UI and dynamic config.
  */
-function gpt_get_preconfigured_gpts()
-{
-    return [
-        ['label' => 'WebMaster.GPT', 'role' => 'gpt_admin'],
-        ['label' => 'Linda.GPT', 'role' => 'gpt_webmaster'],
-        ['label' => 'AgentX.GPT', 'role' => 'gpt_publisher'],
-        ['label' => 'Automatron.GPT', 'role' => 'gpt_publisher'],
-        ['label' => 'SEO-Inspector.GPT', 'role' => 'gpt_publisher'],
-        ['label' => 'CrownLeads.GPT', 'role' => 'gpt_editor'],
-        ['label' => 'Leadsy.GPT', 'role' => 'gpt_editor'],
-        ['label' => 'VIRALIA.GPT', 'role' => 'gpt_editor'],
-    ];
-}
 function gpt_get_sites_list()
 {
     return [
@@ -663,6 +704,8 @@ function gpt_get_current_site_config()
     ];
 }
 
+
+// -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 // --- REST API Endpoints Registration ---
 /**
@@ -673,45 +716,63 @@ function gpt_get_current_site_config()
  * Each endpoint uses robust permission checks and error handling wrappers.
  */
 add_action('rest_api_init', function () {
+    // Register the /post endpoint for creating posts via the REST API
     register_rest_route('gpt/v1', '/post', [
         'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_create_post_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
+        'callback' => gpt_rest_api_error_wrapper('gpt_create_post_endpoint'), // callback to handle the post creation
+        'permission_callback' => 'gpt_rest_permission_check_role', // check if the API key has permission to post
     ]);
-    // --- Add GET /post for agent ping ---
-    register_rest_route('gpt/v1', '/post', [
-        'methods' => 'GET',
-        'callback' => gpt_rest_api_error_wrapper('gpt_ping_post_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
-    ]);
-    register_rest_route('gpt/v1', '/post/(?P<id>\\d+)', [
+
+    // Register the /post/{id} endpoint for editing an existing post
+    register_rest_route('gpt/v1', '/post/(?P<id>\d+)', [
         'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_edit_post_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
+        'callback' => gpt_rest_api_error_wrapper('gpt_edit_post_endpoint'), // callback to handle post editing
+        'permission_callback' => 'gpt_rest_permission_check_role', // check if the API key has permission to edit posts
         'args' => [
             'id' => [
                 'validate_callback' => function ($value) {
-                    return is_numeric($value);
+                    return is_numeric($value); // ensure that the post ID is numeric
                 },
             ],
         ],
     ]);
+
+    // Register the /media endpoint for media uploads (POST method)
     register_rest_route('gpt/v1', '/media', [
         'methods' => 'POST',
-        'callback' => gpt_rest_api_error_wrapper('gpt_upload_media_endpoint'),
-        'permission_callback' => 'gpt_rest_permission_check_role',
+        'callback' => gpt_rest_api_error_wrapper('gpt_upload_media_endpoint'), // callback to handle media uploads
+        'permission_callback' => 'gpt_rest_permission_check_role', // check if the API key has permission to upload media
     ]);
+
+    // Register the /openapi endpoint to serve the OpenAPI schema
     register_rest_route('gpt/v1', '/openapi', [
         'methods' => 'GET',
-        'callback' => gpt_rest_api_error_wrapper('gpt_openapi_schema_handler'),
-        'permission_callback' => '__return_true',
+        'callback' => gpt_rest_api_error_wrapper('gpt_openapi_schema_handler'), // callback to serve OpenAPI schema
+        'permission_callback' => '__return_true', // no authentication required for OpenAPI schema
     ]);
+
+    // Register the /ai-plugin.json endpoint to serve the plugin manifest
     register_rest_route('gpt/v1', '/ai-plugin.json', [
         'methods' => 'GET',
-        'callback' => gpt_rest_api_error_wrapper('gpt_ai_plugin_manifest_handler'),
-        'permission_callback' => '__return_true',
+        'callback' => gpt_rest_api_error_wrapper('gpt_ai_plugin_manifest_handler'), // callback to serve plugin manifest
+        'permission_callback' => '__return_true', // no authentication required for manifest
     ]);
-    // -----------------------------------------------------------------------------
+
+    // Register the /ping route for general API connectivity and API key validation
+    register_rest_route('gpt/v1', '/ping', [
+        'methods' => 'GET',
+        'callback' => 'gpt_ping_endpoint', // Use the callback defined earlier
+        'permission_callback' => function($request) {
+            $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+            return !!gpt_get_role_for_key($key); // Ensure API key is valid
+        },
+    ]);
+});
+
+
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
 // --- REST: Dedicated Ping Endpoint for API Connectivity Testing ---
 /**
  * Dedicated GET /ping endpoint for agents to test API connectivity and API key validity.
@@ -748,41 +809,10 @@ add_action('rest_api_init', function () {
         // Only require a valid API key, not a specific role
         'permission_callback' => function($request) {
             $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
-            return !!gpt_get_role_for_key($key);
+            return !!gpt_get_role_for_key($key); // Ensure API key is valid
         },
     ]);
 });
-});
-
-// -----------------------------------------------------------------------------
-// --- REST: Ping Post Endpoint for Agent ---
-/**
- * Simple GET endpoint for agents to test connectivity and API key validity.
- *
- * Returns a success message and the resolved role if the API key is valid.
- * Used for health checks and integration testing by GPT clients.
- *
- * @param WP_REST_Request $request
- * @return WP_REST_Response|WP_Error
- */
-function gpt_ping_post_endpoint($request)
-{
-    // ✅ Accept both "gpt-api-key" and "Authorization: Bearer" headers
-    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
-
-    // 🧪 Optional debug log
-    error_log('🔐 [Auth] API key used in ping: ' . $key);
-
-    $role = gpt_get_role_for_key($key);
-    if (!$role) {
-        return gpt_error_response('Invalid or missing API key.', 401);
-    }
-
-    return new WP_REST_Response([
-        'message' => 'Ping successful. WordPress site is reachable and API key is valid.',
-        'role' => $role
-    ], 200);
-}
 
 // -----------------------------------------------------------------------------
 // --- Helper: Sanitize and limit excerpt ---
@@ -1227,6 +1257,7 @@ function gpt_openapi_schema_handler()
                 'get' => [
                     'summary' => 'Ping the API to test connectivity and API key validity',
                     'description' => 'Returns a success message and the resolved role if the API key is valid.',
+                    'operationId' => 'pingSite',
                     'responses' => [
                         '200' => [
                             'description' => 'Ping successful',
@@ -1249,15 +1280,119 @@ function gpt_openapi_schema_handler()
                     'security' => [['ApiKeyAuth' => []]]
                 ]
             ],
-            // ...existing code for /post, /media, etc...
+            '/post' => [
+                'post' => [
+                    'summary' => 'Create a new post',
+                    'operationId' => 'createPost',
+                    'requestBody' => [
+                        'required' => true,
+                        'content' => [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => '#/components/schemas/PostInput'
+                                ]
+                            ]
+                        ]
+                    ],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'Post created',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => [
+                                        'type' => 'object',
+                                        'properties' => [
+                                            'post_id' => ['type' => 'integer']
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            '/post/{id}' => [
+                'post' => [
+                    'summary' => 'Edit an existing post',
+                    'operationId' => 'editPost',
+                    'parameters' => [
+                        [
+                            'name' => 'id',
+                            'in' => 'path',
+                            'required' => true,
+                            'schema' => [
+                                'type' => 'integer'
+                            ]
+                        ]
+                    ],
+                    'requestBody' => [
+                        'required' => true,
+                        'content' => [
+                            'application/json' => [
+                                'schema' => [
+                                    '$ref' => '#/components/schemas/PostInput'
+                                ]
+                            ]
+                        ]
+                    ],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'Post updated',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => [
+                                        'type' => 'object',
+                                        'properties' => [
+                                            'post_id' => ['type' => 'integer']
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            '/media' => [
+                'post' => [
+                    'summary' => 'Upload a media file',
+                    'operationId' => 'uploadMedia',
+                    'requestBody' => [
+                        'required' => true,
+                        'content' => [
+                            'multipart/form-data' => [
+                                'schema' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'file' => ['type' => 'string', 'format' => 'binary']
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ],
+                    'responses' => [
+                        '200' => [
+                            'description' => 'Media uploaded',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => [
+                                        'type' => 'object',
+                                        'properties' => [
+                                            'attachment_id' => ['type' => 'integer'],
+                                            'url' => ['type' => 'string']
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
         ]
     ];
-    // Add the rest of the existing paths
-    $schema['paths']['/post'] = [ 'post' => [], 'get' => [] ];
-    $schema['paths']['/post/{id}'] = [ 'post' => [] ];
-    $schema['paths']['/media'] = [ 'post' => [] ];
+    // Return the schema with dynamic paths and configuration
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
+
 
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
@@ -1749,30 +1884,37 @@ function gpt_handle_featured_image($post_id, $params) {
 function create_gpt_user($api_key, $role) {
     gpt_debug_log('[create_gpt_user] API key: ' . $api_key, $role);
     
-    // Get the GPT label for this API key
-    $gpts = gpt_get_preconfigured_gpts();
+    // Look up the label for the API key
     $all_keys = get_option('gpt_api_keys', []);
     $label = null;
+
+    // Find the label corresponding to the API key
     foreach ($all_keys as $key => $info) {
         if ($key === $api_key && !empty($info['label'])) {
             $label = $info['label'];
             break;
         }
     }
+
     gpt_debug_log('[create_gpt_user] Label found for key: ', $label);
 
-    if (!$label) $label = 'gptuser';
+    // Default label if not found
+    if (!$label) {
+        $label = 'gptuser'; // Default label
+    }
 
+    // Generate username and email
     $site = gpt_get_selected_site();
     $label_slug = strtolower(preg_replace('/[^a-z0-9\.]/', '', $label)); 
     $username = 'gpt_' . $label_slug;
     $email = $label_slug . '@' . $site;
 
-    // Check for existing user by login or email
+    // Check for existing user
     $user = get_user_by('login', $username);
     if (!$user) {
         $user = get_user_by('email', $email);
     }
+
     gpt_debug_log('[create_gpt_user] Existing user', $user ? $user->ID : 'None');
 
     if ($user) {
@@ -1784,7 +1926,7 @@ function create_gpt_user($api_key, $role) {
         return $user->ID;
     }
     
-    // Create new user if not found
+    // If user doesn't exist, create a new one
     $password = wp_generate_password(32, true, true);
     $user_id = wp_create_user($username, $password, $email);
     gpt_debug_log('[create_gpt_user] Created new user', $user_id);
@@ -1807,4 +1949,3 @@ function create_gpt_user($api_key, $role) {
 // -----------------------------------------------------------------------------
 // === END OF FILE: GPT-4 WP Plugin v2.0 ===
 // ============================================================================
-
