@@ -794,12 +794,18 @@ function gpt_create_post_endpoint($request)
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
     gpt_debug_log('[gpt_create_post_endpoint] Allowed roles', $allowed_roles);
 
+    // Only block if the API key's role is not allowed
+    if (!in_array($role_normalized, $allowed_roles, true)) {
+        gpt_debug_log('[gpt_create_post_endpoint] Invalid role found after normalization', $role_normalized);
+        return gpt_error_response('Invalid role', 403);
+    }
+
+    // If gpt_role param is present and mismatched, log but do not block
     if ($param_role && $param_role_normalized !== $role_normalized) {
-        gpt_debug_log('[gpt_create_post_endpoint] Role mismatch after normalization', [
+        gpt_debug_log('[gpt_create_post_endpoint] Role param mismatch, proceeding with API key role', [
             'param_role_normalized' => $param_role_normalized,
             'role_normalized' => $role_normalized
         ]);
-        return gpt_error_response('Invalid role', 403);
     }
     if (!$role_normalized) {
         $role_normalized = $param_role_normalized; // fallback if option lookup failed
