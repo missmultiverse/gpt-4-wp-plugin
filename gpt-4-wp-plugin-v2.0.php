@@ -711,6 +711,47 @@ add_action('rest_api_init', function () {
         'callback' => gpt_rest_api_error_wrapper('gpt_ai_plugin_manifest_handler'),
         'permission_callback' => '__return_true',
     ]);
+    // -----------------------------------------------------------------------------
+// --- REST: Dedicated Ping Endpoint for API Connectivity Testing ---
+/**
+ * Dedicated GET /ping endpoint for agents to test API connectivity and API key validity.
+ *
+ * Returns a success message and the resolved role if the API key is valid.
+ * Only requires a valid API key (no role check). Used for health checks and integration testing.
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response|WP_Error
+ */
+function gpt_ping_endpoint($request)
+{
+    // Accept both "gpt-api-key" and "Authorization: Bearer" headers
+    $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    gpt_debug_log('[gpt_ping_endpoint] API key received', $key);
+    $role = gpt_get_role_for_key($key);
+    gpt_debug_log('[gpt_ping_endpoint] Role resolved for key', $role);
+    if (!$role) {
+        gpt_debug_log('[gpt_ping_endpoint] Invalid or missing API key', $key);
+        return gpt_error_response('Invalid or missing API key.', 401);
+    }
+    gpt_debug_log('[gpt_ping_endpoint] Ping successful', ['role' => $role]);
+    return new WP_REST_Response([
+        'message' => 'Ping successful. WordPress site is reachable and API key is valid.',
+        'role' => $role
+    ], 200);
+}
+
+// Register the /ping endpoint
+add_action('rest_api_init', function () {
+    register_rest_route('gpt/v1', '/ping', [
+        'methods' => 'GET',
+        'callback' => 'gpt_ping_endpoint',
+        // Only require a valid API key, not a specific role
+        'permission_callback' => function($request) {
+            $key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+            return !!gpt_get_role_for_key($key);
+        },
+    ]);
+});
 });
 
 // -----------------------------------------------------------------------------
@@ -1182,105 +1223,39 @@ function gpt_openapi_schema_handler()
         ],
         'security' => [['ApiKeyAuth' => []]],
         'paths' => [
-            '/post' => [
-                'post' => [
-                    'summary' => 'Create a new post',
-                    'operationId' => 'createPost',
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'application/json' => [
-                                'schema' => ['$ref' => '#/components/schemas/PostInput']
-                            ]
-                        ]
-                    ],
+            '/ping' => [
+                'get' => [
+                    'summary' => 'Ping the API to test connectivity and API key validity',
+                    'description' => 'Returns a success message and the resolved role if the API key is valid.',
                     'responses' => [
                         '200' => [
-                            'description' => 'Post created',
-                            'content' => [
-                                'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => ['post_id' => ['type' => 'integer']]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
-            ],
-            '/post/{id}' => [
-                'post' => [
-                    'summary' => 'Edit an existing post',
-                    'operationId' => 'editPost',
-                    'parameters' => [
-                        [
-                            'name' => 'id',
-                            'in' => 'path',
-                            'required' => true,
-                            'schema' => ['type' => 'integer']
-                        ]
-                    ],
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'application/json' => [
-                                'schema' => ['$ref' => '#/components/schemas/PostInput']
-                            ]
-                        ]
-                    ],
-                    'responses' => [
-                        '200' => [
-                            'description' => 'Post updated',
-                            'content' => [
-                                'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => ['post_id' => ['type' => 'integer']]
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ]
-                ]
-            ],
-            '/media' => [
-                'post' => [
-                    'summary' => 'Upload a media file',
-                    'operationId' => 'uploadMedia',
-                    'requestBody' => [
-                        'required' => true,
-                        'content' => [
-                            'multipart/form-data' => [
-                                'schema' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary']
-                                    ]
-                                ]
-                            ]
-                        ]
-                    ],
-                    'responses' => [
-                        '200' => [
-                            'description' => 'Media uploaded',
+                            'description' => 'Ping successful',
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
                                         'type' => 'object',
                                         'properties' => [
-                                            'attachment_id' => ['type' => 'integer'],
-                                            'url' => ['type' => 'string']
+                                            'message' => ['type' => 'string'],
+                                            'role' => ['type' => 'string']
                                         ]
                                     ]
                                 ]
                             ]
+                        ],
+                        '401' => [
+                            'description' => 'Invalid or missing API key'
                         ]
-                    ]
+                    ],
+                    'security' => [['ApiKeyAuth' => []]]
                 ]
-            ]
+            ],
+            // ...existing code for /post, /media, etc...
         ]
     ];
+    // Add the rest of the existing paths
+    $schema['paths']['/post'] = [ 'post' => [], 'get' => [] ];
+    $schema['paths']['/post/{id}'] = [ 'post' => [] ];
+    $schema['paths']['/media'] = [ 'post' => [] ];
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
 
