@@ -458,8 +458,12 @@ function gpt_rest_permission_check_role($request) {
     }
     $requested_role = $request->get_param('gpt_role');
     gpt_debug_log('[gpt_rest_permission_check_role] Requested role', $requested_role);
-    if ($requested_role && $requested_role !== $role) {
-        gpt_debug_log("[gpt_rest_permission_check_role] Permission denied: API key role '{$role}' does not match requested role '{$requested_role}'");
+    $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
+    $requested_role_normalized = is_string($requested_role) ? strtolower(trim($requested_role)) : '';
+    gpt_debug_log('[gpt_rest_permission_check_role] Normalized role', $role_normalized);
+    gpt_debug_log('[gpt_rest_permission_check_role] Normalized requested_role', $requested_role_normalized);
+    if ($requested_role && $requested_role_normalized !== $role_normalized) {
+        gpt_debug_log("[gpt_rest_permission_check_role] Permission denied: API key role '{$role_normalized}' does not match requested role '{$requested_role_normalized}'");
         return false;
     }
     gpt_debug_log('[gpt_rest_permission_check_role] Permission granted');
@@ -631,8 +635,8 @@ function gpt_create_post_endpoint($request)
     gpt_debug_log('[gpt_create_post_endpoint] Raw param_role', $param_role);
     $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
     $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
-    gpt_debug_log('[gpt_create_post_endpoint] Normalized role', ['value' => $role_normalized, 'type' => gettype($role_normalized)]);
-    gpt_debug_log('[gpt_create_post_endpoint] Normalized param_role', ['value' => $param_role_normalized, 'type' => gettype($param_role_normalized)]);
+    gpt_debug_log('[gpt_create_post_endpoint] Normalized role', $role_normalized);
+    gpt_debug_log('[gpt_create_post_endpoint] Normalized param_role', $param_role_normalized);
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
     gpt_debug_log('[gpt_create_post_endpoint] Allowed roles', $allowed_roles);
 
@@ -722,19 +726,30 @@ function gpt_edit_post_endpoint($request)
     $api_key = $request->get_header('gpt-api-key');
     $role = gpt_get_role_for_key($api_key);
     $param_role = $request->get_param('gpt_role');
-    if ($param_role && $param_role !== $role) {
-        gpt_debug_log('[gpt_edit_post_endpoint] Role mismatch', [$param_role, $role]);
+    // --- Begin normalization and granular debug logging ---
+    gpt_debug_log('[gpt_edit_post_endpoint] Raw role from key', $role);
+    gpt_debug_log('[gpt_edit_post_endpoint] Raw param_role', $param_role);
+    $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
+    $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
+    gpt_debug_log('[gpt_edit_post_endpoint] Normalized role', $role_normalized);
+    gpt_debug_log('[gpt_edit_post_endpoint] Normalized param_role', $param_role_normalized);
+    $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
+    if ($param_role && $param_role_normalized !== $role_normalized) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Role mismatch after normalization', [
+            'param_role_normalized' => $param_role_normalized,
+            'role_normalized' => $role_normalized
+        ]);
         return gpt_error_response('Invalid role', 403);
     }
-    if (!$role) {
-        $role = $param_role;
+    if (!$role_normalized) {
+        $role_normalized = $param_role_normalized;
     }
-    if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
-        gpt_debug_log('[gpt_edit_post_endpoint] Invalid role found', $role);
+    if (!in_array($role_normalized, $allowed_roles, true)) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Invalid role found after normalization', $role_normalized);
         return gpt_error_response('Invalid role', 403);
     }
     $id = (int) $request->get_param('id');
-    gpt_debug_log('[gpt_edit_post_endpoint] Role', $role);
+    gpt_debug_log('[gpt_edit_post_endpoint] Role', $role_normalized);
     gpt_debug_log('[gpt_edit_post_endpoint] Post ID', $id);
     $params = $request->get_json_params();
     $post = get_post($id);
@@ -743,7 +758,7 @@ function gpt_edit_post_endpoint($request)
         gpt_debug_log('[gpt_edit_post_endpoint] Post not found', $id);
         return gpt_error_response('Post not found', 404);
     }
-    if ($role === 'gpt_editor' && $post->post_status !== 'draft') {
+    if ($role_normalized === 'gpt_editor' && $post->post_status !== 'draft') {
         gpt_debug_log('[gpt_edit_post_endpoint] Editor role cannot edit published posts', $id);
         return gpt_error_response('Editors can only edit drafts', 403);
     }
@@ -813,13 +828,26 @@ function gpt_upload_media_endpoint($request)
     $api_key = $request->get_header('gpt-api-key');
     $role = gpt_get_role_for_key($api_key);
     $param_role = $request->get_param('gpt_role');
-    if ($param_role && $param_role !== $role) {
+    // --- Begin normalization and granular debug logging ---
+    gpt_debug_log('[gpt_upload_media_endpoint] Raw role from key', $role);
+    gpt_debug_log('[gpt_upload_media_endpoint] Raw param_role', $param_role);
+    $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
+    $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
+    gpt_debug_log('[gpt_upload_media_endpoint] Normalized role', $role_normalized);
+    gpt_debug_log('[gpt_upload_media_endpoint] Normalized param_role', $param_role_normalized);
+    $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
+    if ($param_role && $param_role_normalized !== $role_normalized) {
+        gpt_debug_log('[gpt_upload_media_endpoint] Role mismatch after normalization', [
+            'param_role_normalized' => $param_role_normalized,
+            'role_normalized' => $role_normalized
+        ]);
         return gpt_error_response('Invalid role', 403);
     }
-    if (!$role) {
-        $role = $param_role;
+    if (!$role_normalized) {
+        $role_normalized = $param_role_normalized;
     }
-    if (!in_array($role, ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'])) {
+    if (!in_array($role_normalized, $allowed_roles, true)) {
+        gpt_debug_log('[gpt_upload_media_endpoint] Invalid role found after normalization', $role_normalized);
         return gpt_error_response('Invalid role', 403);
     }
 
