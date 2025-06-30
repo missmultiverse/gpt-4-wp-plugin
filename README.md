@@ -1,6 +1,6 @@
 # GPT-4-WP-Plugin v2.0
 
-A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment.
+A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment..
 
 ## Features
 - **Pre-configured GPTs:** WebMaster.GPT, Linda.GPT (Webmaster); AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT (Publisher); CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT (Editor) — all auto-linked to all sites, no manual setup needed
