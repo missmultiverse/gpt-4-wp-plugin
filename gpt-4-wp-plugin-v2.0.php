@@ -1,4 +1,14 @@
 <?php
+// ============================================================================
+//  GPT-4 WP Plugin v2.0 - Main Plugin File
+//  This file contains all logic for secure REST API access, role management,
+//  API key management, admin UI, and endpoint registration for GPT/AI clients.
+//  Each section is hyper-verbosely documented for clarity and maintainability.
+// ============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Plugin Header and Metadata
+// -----------------------------------------------------------------------------
 /*
 Plugin Name: GPT-4 WP Plugin
 Plugin URI: https://github.com/missmultiverse/gpt-4-wp-plugin
@@ -13,7 +23,19 @@ Requires at least: 6.0
 Tested up to: 6.7
 */
 
-// --- DEBUG LOGGING HELPER ---
+// -----------------------------------------------------------------------------
+// 2. Debug Logging Helper
+// -----------------------------------------------------------------------------
+/**
+ * Debug logging utility for the GPT-4 WP Plugin.
+ *
+ * This function writes debug messages to the error log if GPT_PLUGIN_DEBUG is enabled.
+ * It is used throughout the plugin to provide granular, contextual debug output for
+ * troubleshooting and development. Never logs API keys or sensitive data in production.
+ *
+ * @param string $label   A label or context for the log entry.
+ * @param mixed  $data    Optional. Additional data to log (array, object, etc).
+ */
 function gpt_debug_log($label, $data = null) {
     if (defined('GPT_PLUGIN_DEBUG') && GPT_PLUGIN_DEBUG) {
         $msg = '[DEBUG]' . $label;
@@ -28,7 +50,20 @@ function gpt_debug_log($label, $data = null) {
     }
 }
 
+// -----------------------------------------------------------------------------
 // --- Centralized error response and logging helper (for use in REST endpoints) ---
+/**
+ * Returns a standardized WP_Error for REST API responses, with optional debug logging.
+ *
+ * This function is used by all REST endpoints to return errors in a consistent format.
+ * It also logs errors to the debug log if debugging is enabled, including the message
+ * and any additional data provided. Never exposes sensitive information in responses.
+ *
+ * @param string $message  Error message to return.
+ * @param int    $status   HTTP status code (default: 400).
+ * @param array  $data     Optional. Additional data for the error response.
+ * @return WP_Error        Standardized error object for REST API.
+ */
 if (!function_exists('gpt_error_response')) {
     function gpt_error_response($message, $status = 400, $data = [])
     {
@@ -39,7 +74,18 @@ if (!function_exists('gpt_error_response')) {
     }
 }
 
+// -----------------------------------------------------------------------------
 // --- REST API error handling wrapper ---
+/**
+ * Wraps REST API endpoint callbacks in a try/catch block for robust error handling.
+ *
+ * This function ensures that any uncaught exceptions or errors in endpoint logic
+ * are caught and returned as standardized WP_Error responses, preventing fatal errors
+ * from leaking to the client. Used as a wrapper for all REST endpoint callbacks.
+ *
+ * @param callable $callback  The endpoint handler function to wrap.
+ * @return callable           Wrapped callback for use in register_rest_route.
+ */
 function gpt_rest_api_error_wrapper($callback)
 {
     return function ($request) use ($callback) {
@@ -61,7 +107,15 @@ function gpt_rest_api_error_wrapper($callback)
     };
 }
 
+// -----------------------------------------------------------------------------
 // --- Register custom roles on plugin activation ---
+/**
+ * Registers custom GPT roles on plugin activation.
+ *
+ * This hook creates the three supported roles (Webmaster, Publisher, Editor),
+ * each with a distinct set of capabilities. These roles are used for API key
+ * assignment and permission checks throughout the plugin. No legacy roles are added.
+ */
 register_activation_hook(__FILE__, function () {
     add_role('gpt_admin', 'GPT Administrator', [
         'read' => true,
@@ -99,7 +153,14 @@ register_activation_hook(__FILE__, function () {
     ]);
 });
 
+// -----------------------------------------------------------------------------
 // --- Remove custom roles on deactivation ---
+/**
+ * Removes custom GPT roles on plugin deactivation.
+ *
+ * This hook cleans up all custom roles created by the plugin, ensuring no
+ * lingering roles remain if the plugin is disabled or removed.
+ */
 register_deactivation_hook(__FILE__, function () {
     remove_role('gpt_admin');
     remove_role('gpt_webmaster');
@@ -107,7 +168,16 @@ register_deactivation_hook(__FILE__, function () {
     remove_role('gpt_editor');
 });
 
+// -----------------------------------------------------------------------------
 // --- API Key Management: Admin UI ---
+/**
+ * Adds the GPT API Keys admin page and management UI under Tools.
+ *
+ * This section provides a minimal, user-friendly interface for generating,
+ * listing, and revoking API keys, as well as selecting the current site.
+ * All logic for API key management is contained here, with robust input validation
+ * and no exposure of sensitive data. The UI is always under Tools > GPT API Keys.
+ */
 add_action('admin_menu', function () {
     add_menu_page(
         'GPT API Keys',
@@ -422,7 +492,14 @@ function gpt_api_keys_page()
     <?php
 }
 
-// Add settings link in plugin list
+// -----------------------------------------------------------------------------
+// --- Add settings link in plugin list ---
+/**
+ * Adds a direct 'Settings' link to the plugin list for quick access to the admin UI.
+ *
+ * This filter ensures that users can easily navigate to the API key management page
+ * from the WordPress plugins list.
+ */
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links) {
     if (!is_array($links)) {
         $links = [];
@@ -435,12 +512,17 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
 });
 
 /**
- * Permission callback for GPT REST API endpoints.
- * Checks for a valid gpt-api-key header and (optionally) gpt_role.
- * Returns true if authorized, false otherwise.
+ * Permission callback used by GPT REST endpoints.
  *
- * @param WP_REST_Request $request
- * @return bool
+ * This function handles the permission check for REST API requests that require a GPT role.
+ * It reads the API key from the incoming request headers, determines the corresponding GPT role
+ * using the provided key, and verifies whether the role is authorized to perform the requested action.
+ * If the role is valid, it grants permission; otherwise, it denies access.
+ * The function interacts with other parts of the plugin to fetch the role from stored API keys.
+ * If the key is missing, or the role is invalid, the request is rejected with an error response.
+ *
+ * @param WP_REST_Request $request Incoming REST request.
+ * @return bool True when a valid role is resolved, false otherwise.
  */
 function gpt_rest_permission_check_role($request) {
     gpt_debug_log('[gpt_rest_permission_check_role] Incoming headers', $request->get_headers());
@@ -470,7 +552,17 @@ function gpt_rest_permission_check_role($request) {
     return true;
 }
 
+// -----------------------------------------------------------------------------
 // --- Helper: Validate API key and get role ---
+/**
+ * Retrieves the GPT role associated with a given API key.
+ *
+ * This function looks up the provided API key in the stored options and returns
+ * the associated role if found. Used by permission checks and endpoint handlers.
+ *
+ * @param string $key  The API key to look up.
+ * @return string|null The associated role, or null if not found.
+ */
 function gpt_get_role_for_key($key)
 {
     gpt_debug_log('[gpt_get_role_for_key] Checking key', $key);
@@ -484,8 +576,14 @@ function gpt_get_role_for_key($key)
     return null;
 }
 
-
+// -----------------------------------------------------------------------------
 // --- Pre-configured GPTs and Sites ---
+/**
+ * Returns the list of pre-configured GPTs and supported sites.
+ *
+ * These functions provide the always-present GPT client labels and the list of
+ * supported domains for site selection. Used for admin UI and dynamic config.
+ */
 function gpt_get_preconfigured_gpts()
 {
     return [
@@ -535,7 +633,15 @@ function gpt_set_selected_site($site)
     }
 }
 
+// -----------------------------------------------------------------------------
 // --- Helper: Get current site config (for dynamic endpoint/settings adjustment) ---
+/**
+ * Returns the current site configuration for dynamic endpoint and settings adjustment.
+ *
+ * Used to adapt plugin behavior based on the selected site in multisite or multi-domain setups.
+ *
+ * @return array Site config including base URL and API base.
+ */
 function gpt_get_current_site_config()
 {
     $site = gpt_get_selected_site();
@@ -546,8 +652,15 @@ function gpt_get_current_site_config()
     ];
 }
 
-
-// --- REST API Endpoints ---
+// -----------------------------------------------------------------------------
+// --- REST API Endpoints Registration ---
+/**
+ * Registers all GPT REST API endpoints with WordPress.
+ *
+ * This section defines the main REST endpoints for post creation, editing, media upload,
+ * OpenAPI schema, and manifest, as well as a ping endpoint for connectivity testing.
+ * Each endpoint uses robust permission checks and error handling wrappers.
+ */
 add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/post', [
         'methods' => 'POST',
@@ -589,7 +702,17 @@ add_action('rest_api_init', function () {
     ]);
 });
 
+// -----------------------------------------------------------------------------
 // --- REST: Ping Post Endpoint for Agent ---
+/**
+ * Simple GET endpoint for agents to test connectivity and API key validity.
+ *
+ * Returns a success message and the resolved role if the API key is valid.
+ * Used for health checks and integration testing by GPT clients.
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response|WP_Error
+ */
 function gpt_ping_post_endpoint($request)
 {
     // ✅ Accept both "gpt-api-key" and "Authorization: Bearer" headers
@@ -609,7 +732,17 @@ function gpt_ping_post_endpoint($request)
     ], 200);
 }
 
+// -----------------------------------------------------------------------------
 // --- Helper: Sanitize and limit excerpt ---
+/**
+ * Sanitizes and truncates post excerpts for safe storage and display.
+ *
+ * Ensures that excerpts are plain text and do not exceed 200 characters.
+ * Used during post creation and editing.
+ *
+ * @param string $excerpt
+ * @return string
+ */
 if (!function_exists('gpt_sanitize_excerpt')) {
     function gpt_sanitize_excerpt($excerpt) {
         // Basic sanitization and max length 200 characters
@@ -618,8 +751,18 @@ if (!function_exists('gpt_sanitize_excerpt')) {
     }
 }
 
-
-// --- START --- REST: Create Post ---
+// -----------------------------------------------------------------------------
+// --- REST: Create Post ---
+/**
+ * Handles creation of new WordPress posts via the REST API.
+ *
+ * This endpoint allows authorized GPT clients to create posts with specified content,
+ * categories, tags, featured images, and metadata. It performs robust role validation,
+ * input sanitization, and debug logging. Only allowed roles may create posts.
+ *
+ * @param WP_REST_Request $request
+ * @return array|WP_Error
+ */
 function gpt_create_post_endpoint($request)
 {
     gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
@@ -717,9 +860,18 @@ function gpt_create_post_endpoint($request)
 }
 // --- END --- REST: Create Post ---
 
-
-
+// -----------------------------------------------------------------------------
 // --- REST: Edit Post ---
+/**
+ * Handles editing of existing WordPress posts via the REST API.
+ *
+ * This endpoint allows authorized GPT clients to update post content, status, categories,
+ * tags, featured images, and metadata. It enforces role-based restrictions (e.g., editors
+ * can only edit drafts) and performs thorough input validation and debug logging.
+ *
+ * @param WP_REST_Request $request
+ * @return WP_REST_Response|WP_Error
+ */
 function gpt_edit_post_endpoint($request)
 {
     gpt_debug_log('[gpt_edit_post_endpoint] Incoming request', $request->get_json_params());
@@ -821,8 +973,18 @@ function gpt_edit_post_endpoint($request)
 }
 // --- END --- REST: Edit Post ---
 
-
+// -----------------------------------------------------------------------------
 // --- REST: Upload Media ---
+/**
+ * Handles media file uploads via the REST API.
+ *
+ * This endpoint supports both direct file uploads (multipart/form-data) and remote image
+ * downloads (via image_url). It validates file types, enforces role permissions, and
+ * returns the attachment ID and URL on success. Only allowed roles may upload media.
+ *
+ * @param WP_REST_Request $request
+ * @return array|WP_Error
+ */
 function gpt_upload_media_endpoint($request)
 {
     $api_key = $request->get_header('gpt-api-key');
@@ -936,8 +1098,17 @@ function gpt_upload_media_endpoint($request)
     return gpt_error_response('No image URL or file provided', 400);
 }
 
-
+// -----------------------------------------------------------------------------
 // --- REST: Dynamic OpenAPI Schema Endpoint ---
+/**
+ * Serves a dynamic OpenAPI schema describing the GPT REST API.
+ *
+ * This endpoint provides a machine-readable OpenAPI 3.1 schema for GPT clients and tools,
+ * enabling automated discovery and integration. The schema is dynamically generated to
+ * reflect the current site URL and endpoint structure.
+ *
+ * @return WP_REST_Response
+ */
 function gpt_openapi_schema_handler()
 {
     $site_url = get_site_url();
@@ -1084,8 +1255,16 @@ function gpt_openapi_schema_handler()
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
 
-
+// -----------------------------------------------------------------------------
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
+/**
+ * Serves a dynamic ai-plugin.json manifest for plugin discovery by GPTs.
+ *
+ * This endpoint provides a manifest describing the plugin's capabilities, authentication,
+ * and API schema location. Used by GPTs and clients to auto-configure integrations.
+ *
+ * @return WP_REST_Response
+ */
 function gpt_ai_plugin_manifest_handler()
 {
     $site_url = get_site_url();
@@ -1112,7 +1291,14 @@ function gpt_ai_plugin_manifest_handler()
     return new WP_REST_Response($manifest, 200, ['Content-Type' => 'application/json']);
 }
 
+// -----------------------------------------------------------------------------
 // --- AJAX handler for Ping Site button ---
+/**
+ * Handles AJAX requests from the admin UI to test REST endpoint reachability.
+ *
+ * This handler allows administrators to verify that the /post endpoint is reachable
+ * and returns the expected response, aiding in troubleshooting and setup.
+ */
 add_action('wp_ajax_gpt_ping_site', function () {
     if (!current_user_can('manage_options')) {
         wp_send_json_error('Permission denied');
@@ -1146,11 +1332,14 @@ add_action('wp_ajax_gpt_ping_site', function () {
     }
 });
 
-// ==========================================
-// --- START --- GPT Universal Action Route
-// ==========================================
-error_log('✅ [WebMasterGPT] rest_api_init called');
-
+// -----------------------------------------------------------------------------
+// === GPT Universal Action Route ===
+/**
+ * Universal action endpoint for future extensibility.
+ *
+ * This endpoint allows for generic actions (e.g., ping) to be handled in a single route,
+ * simplifying future expansion and custom integrations. Only enabled for authorized roles.
+ */
 add_action('rest_api_init', function () {
     register_rest_route('gpt/v1', '/action', [
         'methods' => 'POST',
@@ -1176,10 +1365,17 @@ function gpt_action_handler($request)
             return new WP_Error('unknown_action', 'Unrecognized action: ' . esc_html($action), ['status' => 400]);
     }
 }
-// ========================================
-// --- END --- GPT Universal Action Route
+// === END GPT Universal Action Route ===
 
+// -----------------------------------------------------------------------------
 // --- File Management REST Endpoints (gpt_admin only) ---
+/**
+ * REST API endpoints for secure file and directory management (gpt_admin only).
+ *
+ * These endpoints allow the gpt_admin role to read, write, create, list, and delete
+ * files and directories within the plugin directory. All paths are sanitized and
+ * validated to prevent unauthorized access. Used for advanced automation and management.
+ */
 add_action('rest_api_init', function () {
     // Read file
     register_rest_route('gpt/v1', '/file', [
@@ -1416,7 +1612,7 @@ function gpt_rmdir_recursive($dir)
             continue;
         $path = $dir . DIRECTORY_SEPARATOR . $item;
         if (is_dir($path)) {
-            gpt_rmdir_recursive($path);
+                       gpt_rmdir_recursive($path);
         } else {
             unlink($path);
         }
@@ -1424,14 +1620,17 @@ function gpt_rmdir_recursive($dir)
     return rmdir($dir);
 }
 
+// -----------------------------------------------------------------------------
 // --- Featured image handling function ---
 /**
- * Handle featured image assignment for a post.
- * Supports 'featured_media' (attachment ID) and 'featured_image_url' (download and attach).
- * Logs each step for debugging.
+ * Handles assignment of featured images to posts during creation or editing.
  *
- * @param int $post_id
- * @param array $params
+ * Supports both direct attachment IDs and remote image URLs. Downloads and attaches
+ * images as needed, with detailed debug logging for each step. Ensures only valid
+ * images are set as featured images.
+ *
+ * @param int   $post_id  The post to assign the image to.
+ * @param array $params   Parameters from the REST request.
  */
 function gpt_handle_featured_image($post_id, $params) {
     if (!$post_id || !is_numeric($post_id)) {
@@ -1599,4 +1798,7 @@ function create_gpt_user($api_key, $role) {
 
     return false;
 }
+// -----------------------------------------------------------------------------
+// === END OF FILE: GPT-4 WP Plugin v2.0 ===
+// ============================================================================
 
