@@ -1,7 +1,5 @@
 # GPT-4-WP-Plugin v2.0
 
-This is a test for ChatGPT code 007
-
 A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment.
 
 ## Features
