@@ -1,9 +1,18 @@
 <?php
 // ============================================================================
-//  GPT-4 WP Plugin v2.0 - Main Plugin File
-//  This file contains all logic for secure REST API access, role management,
-//  API key management, admin UI, and endpoint registration for GPT/AI clients.
-//  Each section is hyper-verbosely documented for clarity and maintainability.
+// === GPT-4 WP Plugin v2.0: Hyper-Verbose Documentation and Section Delimitation ===
+// ============================================================================
+//
+// This file implements a secure, minimal REST API for WordPress, designed for
+// robust integration with GPTs/clients. It provides:
+//   - Custom roles and role-based API key management
+//   - Secure REST endpoints for post, media, and file management
+//   - Minimal, user-friendly admin UI for API key management
+//   - Dynamic OpenAPI and manifest endpoints for plugin discovery
+//   - Granular debug logging and robust input validation
+//
+// Each section below is clearly delimited and thoroughly documented for clarity.
+//
 // ============================================================================
 
 // -----------------------------------------------------------------------------
@@ -511,6 +520,8 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
     return $links; // ✅ THIS is what was missing
 });
 
+// -----------------------------------------------------------------------------
+// --- REST permission check based on provided GPT role ---
 /**
  * Permission callback used by GPT REST endpoints.
  *
@@ -1598,7 +1609,7 @@ function gpt_file_delete_endpoint($request)
             'path' => $path,
             'deleted' => true,
             'type' => 'file'
-        ];
+               ];
     }
 }
 
@@ -1729,16 +1740,18 @@ function gpt_handle_featured_image($post_id, $params) {
     }
 }
 
+// -----------------------------------------------------------------------------
+// --- Create or retrieve a WordPress user for a GPT label and role ---
 /**
- * Create or retrieve a WordPress user for a GPT label (name) and role.
- * Username: gpt_{label}
- * Email: {label}@{site_domain}
- * Role: as provided (gpt_publisher, gpt_editor, etc)
- * Marks user as non-human (meta: is_gpt_user = 1)
+ * Creates or retrieves a WordPress user for a given GPT label and role.
  *
- * @param string $api_key
- * @param string $role
- * @return int|false User ID or false on failure
+ * This function ensures that each API key is associated with a unique, non-human user
+ * account, used as the post author for content created via the API. Users are created
+ * with a special meta flag and email address, and are assigned the correct role.
+ *
+ * @param string $api_key  The API key for the GPT client.
+ * @param string $role     The role to assign to the user.
+ * @return int|false       User ID on success, false on failure.
  */
 function create_gpt_user($api_key, $role) {
     gpt_debug_log('[create_gpt_user] API key: ' . $api_key, $role);
