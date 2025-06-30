@@ -776,18 +776,30 @@ if (!function_exists('gpt_sanitize_excerpt')) {
  */
 function gpt_create_post_endpoint($request)
 {
+    // -------------------------------------------------------------------------
+    // --- Hyper-Verbose Section: Incoming Request and Role Resolution ---
+    // -------------------------------------------------------------------------
     gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
 
-    // Determine role from API key or request param
+    // Extract API key from header
     $api_key = $request->get_header('gpt-api-key');
     gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
+    // Get role associated with API key
     $role = gpt_get_role_for_key($api_key);
+    // Get gpt_role param from request (may be missing)
     $param_role = $request->get_param('gpt_role');
 
     // --- Begin normalization and granular debug logging ---
     $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
     $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
+
+    // --- Ensure gpt_role fallback and robust validation ---
+    // If gpt_role is missing, use the API key's role
+    if (empty($param_role_normalized)) {
+        $param_role_normalized = $role_normalized;
+        gpt_debug_log('[gpt_create_post_endpoint] gpt_role param missing, falling back to API key role', $role_normalized);
+    }
 
     // Log available roles for debugging
     gpt_debug_log('[gpt_create_post_endpoint] Available roles', $allowed_roles);
@@ -799,13 +811,13 @@ function gpt_create_post_endpoint($request)
     gpt_debug_log('[gpt_create_post_endpoint] Requested role', $param_role);
     gpt_debug_log('[gpt_create_post_endpoint] Normalized requested role', $param_role_normalized);
 
-    // Only block if the API key's role is not allowed
-    if (!in_array($role_normalized, $allowed_roles, true)) {
-        gpt_debug_log('[gpt_create_post_endpoint] Invalid role found after normalization', $role_normalized);
+    // --- Use the effective role (param_role_normalized) for validation ---
+    if (!in_array($param_role_normalized, $allowed_roles, true)) {
+        gpt_debug_log('[gpt_create_post_endpoint] Invalid role', $param_role_normalized);
         return gpt_error_response('Invalid role', 403);
     }
 
-    // If gpt_role param is present and mismatched, log but do not block
+    // If gpt_role param is present but mismatched, log but do not block
     if ($param_role && $param_role_normalized !== $role_normalized) {
         gpt_debug_log('[gpt_create_post_endpoint] Role param mismatch, proceeding with API key role', [
             'param_role_normalized' => $param_role_normalized,
@@ -813,26 +825,28 @@ function gpt_create_post_endpoint($request)
         ]);
     }
 
-    gpt_debug_log('[gpt_create_post_endpoint] Effective normalized role', $role_normalized);
+    gpt_debug_log('[gpt_create_post_endpoint] Effective normalized role', $param_role_normalized);
 
+    // -------------------------------------------------------------------------
+    // --- Continue with Post Creation Process ---
+    // -------------------------------------------------------------------------
     $params = $request->get_json_params();
     gpt_debug_log('[gpt_create_post_endpoint] Params', $params);
 
     // Retrieve and check user ID based on API key and role
-    $user_id = create_gpt_user($api_key, $role_normalized);
+    $user_id = create_gpt_user($api_key, $param_role_normalized);
     gpt_debug_log('[gpt_create_post_endpoint] User ID after user creation', $user_id);
 
-    // If user creation failed, log and return error
     if (!$user_id) {
         gpt_debug_log('[gpt_create_post_endpoint] Failed to create or retrieve user for API key', $api_key);
         return gpt_error_response('Failed to create user', 500);
     }
 
-    // Proceed with creating the post
+    // Prepare post data
     $post_data = [
         'post_title' => sanitize_text_field($params['title'] ?? ''),
         'post_content' => wp_kses_post($params['content'] ?? ''),
-        'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($role_normalized === 'gpt_editor') ? 'draft' : 'publish'),
+        'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : (($param_role_normalized === 'gpt_editor') ? 'draft' : 'publish'),
         'post_type' => 'post',
         'post_excerpt' => isset($params['excerpt']) ? wp_kses_post($params['excerpt']) : '',
         'post_format' => isset($params['format']) ? sanitize_key($params['format']) : 'standard',
