@@ -156,8 +156,7 @@ function gpt_rest_api_error_wrapper($callback)
  * This hook creates the four supported roles (Administrator, Webmaster,
  * Publisher, Editor), each with a distinct set of capabilities. These roles
  * are used for API key
- * assignment and permission checks throughout the plugin. No legacy roles 
- * are added.
+ * assignment and permission checks throughout the plugin. No legacy roles are added.
  */
 register_activation_hook(__FILE__, function () {
     add_role('gpt_admin', 'GPT Administrator', [
@@ -642,12 +641,13 @@ function gpt_get_role_for_key($key)
 }
 
 // -----------------------------------------------------------------------------
-// --- Pre-configured GPTs and Sites ---
+// --- Pre-configured  Websites ---
 /**
- * Returns the list of pre-configured GPTs and supported sites.
+ * Returns the list of pre-configured websites.
  *
- * These functions provide the always-present GPT client labels and the list of
- * supported domains for site selection. Used for admin UI and dynamic config.
+ * These functions provide the always-present list of supported domains 
+ * for site selection. Used for admin UI and dynamic config. NOTE: WE REMOVED
+ * THE PRECONFIGURED GPTs FEATURE
  */
 function gpt_get_sites_list()
 {
@@ -834,7 +834,7 @@ if (!function_exists('gpt_sanitize_excerpt')) {
 }
 
 // -----------------------------------------------------------------------------
-// --- REST: Create Post ---
+// --- REST: 📚 CREATE POST 🗄️---CREATE POST 📚
 /**
  * Handles creation of new WordPress posts via the REST API.
  *
@@ -852,11 +852,13 @@ function gpt_create_post_endpoint($request)
     // -------------------------------------------------------------------------
     gpt_debug_log('[gpt_create_post_endpoint] Incoming request', $request->get_json_params());
 
-    // Extract API key from header
-    $api_key = $request->get_header('gpt-api-key');
+    // 🔑 Extract API key from either the 'gpt-api-key' or 'Authorization: Bearer' header
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
     gpt_debug_log('[gpt_create_post_endpoint] API key', $api_key);
+
     // Get role associated with API key
     $role = gpt_get_role_for_key($api_key);
+
     // Get gpt_role param from request (may be missing)
     $param_role = $request->get_param('gpt_role');
 
@@ -958,10 +960,10 @@ function gpt_create_post_endpoint($request)
     gpt_debug_log('[gpt_create_post_endpoint] Returning post_id', $post_id);
     return ['post_id' => $post_id];
 }
-// --- END --- REST: Create Post ---
+// --- 🛑 END 🛑--- REST: Create Post ---END CREATE POST
 
 // -----------------------------------------------------------------------------
-// --- REST: Edit Post ---
+// --- REST: Edit Post 📣 --- 📰 EDIT POST -- 📝 EDIT POST 📖
 /**
  * Handles editing of existing WordPress posts via the REST API.
  *
@@ -975,17 +977,31 @@ function gpt_create_post_endpoint($request)
 function gpt_edit_post_endpoint($request)
 {
     gpt_debug_log('[gpt_edit_post_endpoint] Incoming request', $request->get_json_params());
-    $api_key = $request->get_header('gpt-api-key');
+    
+    // 🔑 Extract API key from either the 'gpt-api-key' or 'Authorization: Bearer' header
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    gpt_debug_log('[gpt_edit_post_endpoint] API key', $api_key);
+
+    // Get role associated with API key
     $role = gpt_get_role_for_key($api_key);
+
+    // Get gpt_role param from request (may be missing)
     $param_role = $request->get_param('gpt_role');
+
     // --- Begin normalization and granular debug logging ---
     gpt_debug_log('[gpt_edit_post_endpoint] Raw role from key', $role);
     gpt_debug_log('[gpt_edit_post_endpoint] Raw param_role', $param_role);
+    
+    // Normalize role values for comparison
     $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
     $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
+    
     gpt_debug_log('[gpt_edit_post_endpoint] Normalized role', $role_normalized);
     gpt_debug_log('[gpt_edit_post_endpoint] Normalized param_role', $param_role_normalized);
+
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
+
+    // Role validation: Check for mismatch after normalization
     if ($param_role && $param_role_normalized !== $role_normalized) {
         gpt_debug_log('[gpt_edit_post_endpoint] Role mismatch after normalization', [
             'param_role_normalized' => $param_role_normalized,
@@ -993,32 +1009,44 @@ function gpt_edit_post_endpoint($request)
         ]);
         return gpt_error_response('Invalid role', 403);
     }
+
     if (!$role_normalized) {
         $role_normalized = $param_role_normalized;
     }
+
     if (!in_array($role_normalized, $allowed_roles, true)) {
         gpt_debug_log('[gpt_edit_post_endpoint] Invalid role found after normalization', $role_normalized);
         return gpt_error_response('Invalid role', 403);
     }
+
     $id = (int) $request->get_param('id');
     gpt_debug_log('[gpt_edit_post_endpoint] Role', $role_normalized);
     gpt_debug_log('[gpt_edit_post_endpoint] Post ID', $id);
+
+    // Load the post
     $params = $request->get_json_params();
     $post = get_post($id);
     gpt_debug_log('[gpt_edit_post_endpoint] Loaded post', $post);
+
     if (!$post) {
         gpt_debug_log('[gpt_edit_post_endpoint] Post not found', $id);
         return gpt_error_response('Post not found', 404);
     }
+
+    // Editors can only edit drafts
     if ($role_normalized === 'gpt_editor' && $post->post_status !== 'draft') {
         gpt_debug_log('[gpt_edit_post_endpoint] Editor role cannot edit published posts', $id);
         return gpt_error_response('Editors can only edit drafts', 403);
     }
+
+    // Validate post status
     $allowed_statuses = ['publish', 'draft', 'pending', 'private'];
     if (isset($params['post_status']) && !in_array($params['post_status'], $allowed_statuses)) {
         gpt_debug_log('[gpt_edit_post_endpoint] Invalid post status', $params['post_status']);
         return gpt_error_response('Invalid post status', 400);
     }
+
+    // Prepare update array for post fields
     $update = [
         'ID' => $id,
         'post_title' => isset($params['title']) ? sanitize_text_field($params['title']) : $post->post_title,
@@ -1030,15 +1058,23 @@ function gpt_edit_post_endpoint($request)
         'post_status' => isset($params['post_status']) ? sanitize_key($params['post_status']) : $post->post_status,
         'post_date' => isset($params['post_date']) ? sanitize_text_field($params['post_date']) : $post->post_date,
     ];
+    
     gpt_debug_log('[gpt_edit_post_endpoint] Update array', $update);
+
+    // Update the post
     $result = wp_update_post($update, true);
     gpt_debug_log('[gpt_edit_post_endpoint] wp_update_post result', $result);
+
     if (is_wp_error($result)) {
         gpt_debug_log('[gpt_edit_post_endpoint] Error updating post', $result->get_error_message());
         return gpt_error_response('Failed to update post', 500);
     }
+
+    // Handle featured image
     gpt_debug_log('[gpt_edit_post_endpoint] Handling featured image');
     gpt_handle_featured_image($result, $params);
+
+    // Set categories and tags
     if (!empty($params['categories'])) {
         gpt_debug_log('[gpt_edit_post_endpoint] Setting categories', $params['categories']);
         wp_set_post_categories($result, array_map('intval', (array) $params['categories']));
@@ -1047,14 +1083,19 @@ function gpt_edit_post_endpoint($request)
         gpt_debug_log('[gpt_edit_post_endpoint] Setting tags', $params['tags']);
         wp_set_post_tags($result, (array) $params['tags']);
     }
+
+    // Handle custom metadata
     if (!empty($params['meta']) && is_array($params['meta'])) {
         gpt_debug_log('[gpt_edit_post_endpoint] Setting meta', $params['meta']);
         foreach ($params['meta'] as $key => $value) {
             update_post_meta($result, sanitize_key($key), sanitize_text_field($value));
         }
     }
+
+    // Fetch the updated post and return the response
     $updated_post = get_post($result);
     gpt_debug_log('[gpt_edit_post_endpoint] Updated post', $updated_post);
+
     if ($updated_post->post_status === 'publish') {
         gpt_debug_log('[gpt_edit_post_endpoint] Returning success response', $result);
         return new WP_REST_Response([
@@ -1071,15 +1112,14 @@ function gpt_edit_post_endpoint($request)
         ], 200);
     }
 }
-// --- END --- REST: Edit Post ---
+// --- 🛑 END 🛑--- REST: END EDIT POST --- END -----
 
 // -----------------------------------------------------------------------------
-// --- REST: Upload Media ---
 /**
- * Handles media file uploads via the REST API.
+ * Handles MEDIA file uploads via the REST API. ---📺 MEDIA 🎥
  *
  * This endpoint supports both direct file uploads (multipart/form-data) and remote image
- * downloads (via image_url). It validates file types, enforces role permissions, and
+ * downloads (via image_url). It validates file types, enforces role permissions, and 
  * returns the attachment ID and URL on success. Only allowed roles may upload media.
  *
  * @param WP_REST_Request $request
@@ -1087,17 +1127,25 @@ function gpt_edit_post_endpoint($request)
  */
 function gpt_upload_media_endpoint($request)
 {
-    $api_key = $request->get_header('gpt-api-key');
+    // 🔑 Extract API key from either the 'gpt-api-key' or 'Authorization: Bearer' header
+    $api_key = $request->get_header('gpt-api-key') ?: str_replace('Bearer ', '', $request->get_header('authorization'));
+    gpt_debug_log('[gpt_upload_media_endpoint] API key', $api_key);
+
+    // Get role associated with API key
     $role = gpt_get_role_for_key($api_key);
-    $param_role = $request->get_param('gpt_role');
-    // --- Begin normalization and granular debug logging ---
-    gpt_debug_log('[gpt_upload_media_endpoint] Raw role from key', $role);
-    gpt_debug_log('[gpt_upload_media_endpoint] Raw param_role', $param_role);
+    $param_role = $request->get_param('gpt_role'); // Role sent in request (optional)
+
+    // Normalize role for comparison
     $role_normalized = is_string($role) ? strtolower(trim($role)) : '';
     $param_role_normalized = is_string($param_role) ? strtolower(trim($param_role)) : '';
-    gpt_debug_log('[gpt_upload_media_endpoint] Normalized role', $role_normalized);
-    gpt_debug_log('[gpt_upload_media_endpoint] Normalized param_role', $param_role_normalized);
+    
+    gpt_debug_log('[gpt_upload_media_endpoint] Normalized role from API key', $role_normalized);
+    gpt_debug_log('[gpt_upload_media_endpoint] Normalized role from request', $param_role_normalized);
+
+    // Define allowed roles for media upload
     $allowed_roles = ['gpt_webmaster', 'gpt_publisher', 'gpt_editor'];
+
+    // If there's a mismatch in roles, log and return error
     if ($param_role && $param_role_normalized !== $role_normalized) {
         gpt_debug_log('[gpt_upload_media_endpoint] Role mismatch after normalization', [
             'param_role_normalized' => $param_role_normalized,
@@ -1105,14 +1153,19 @@ function gpt_upload_media_endpoint($request)
         ]);
         return gpt_error_response('Invalid role', 403);
     }
+
+    // Fall back to API key role if gpt_role param is missing
     if (!$role_normalized) {
         $role_normalized = $param_role_normalized;
     }
+
+    // Check if role is allowed to upload media
     if (!in_array($role_normalized, $allowed_roles, true)) {
         gpt_debug_log('[gpt_upload_media_endpoint] Invalid role found after normalization', $role_normalized);
         return gpt_error_response('Invalid role', 403);
     }
 
+    // Check if upload directory is writable
     $uploads = wp_upload_dir();
     if (!empty($uploads['error']) || !is_writable($uploads['path'])) {
         return gpt_error_response('Upload directory is not writable.', 500);
@@ -1195,8 +1248,10 @@ function gpt_upload_media_endpoint($request)
         wp_update_attachment_metadata($attach_id, $attach_data);
         return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
     }
+
     return gpt_error_response('No image URL or file provided', 400);
 }
+// --------END---📷--MEDIA file uploads ---📺 MEDIA 🎥 ---------
 
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic OpenAPI Schema Endpoint ---
