@@ -1,7 +1,7 @@
 <?php
 // ============================================================================
 // === GPT-4 WP Plugin v2.0: 
-// === Hyper-Verbose Documentation and Section Delimitation ===
+// === Hyper-Verbose Documentation and Section Delimitation... ===
 // ============================================================================
 //
 // This file implements a secure, minimal REST API for WordPress, designed for
