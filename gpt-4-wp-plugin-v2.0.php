@@ -11,41 +11,7 @@
 //   - Dynamic OpenAPI and manifest endpoints for plugin discovery
 //   - Granular debug logging and robust input validation
 //
-// Each section below is clearly delimited and thoroughly documented for clarity.
-//
-// ============================================================================
-// Plugin header information
-/*
-Plugin Name: GPT-4 WP Plugin
-Description: A plugin to integrate GPT-4 with WordPress.
-Version: 1.0
-Author: Your Name
-*/
-
-// Include debugging code at the start of the plugin, just after the plugin is initialized
-add_action('admin_menu', function() {
-    add_menu_page('GPT Debug', 'GPT Debug', 'manage_options', 'gpt-debug', 'gpt_debug_page');
-});
-
-// Debug page to show all stored API keys and roles
-function gpt_debug_page() {
-    // Retrieve stored API keys
-    $api_keys = get_option('gpt_api_keys', []);
-
-    // Output the keys (either directly in the page or log them)
-    echo '<h1>GPT API Keys Debug</h1>';
-    echo '<pre>';
-    print_r($api_keys); // This will print all stored API keys and their associated roles
-    echo '</pre>';
-}
-
-// This will ensure the plugin is properly initialized and output to the screen
-function gpt_plugin_initialization() {
-    // This is where you'd want to see the debug output if you're testing it globally
-    $api_keys = get_option('gpt_api_keys', []);
-    error_log("GPT API Keys: " . print_r($api_keys, true)); // Log to debug.log for admin viewing
-}
-add_action('init', 'gpt_plugin_initialization');  // Hooking into 'init' to print the data when WordPress initializes
+// Each section below is clearly delimited and thoroughly documented for clarity
 
 // -----------------------------------------------------------------------------
 // 1. Plugin Header and Metadata
@@ -1114,6 +1080,10 @@ function gpt_edit_post_endpoint($request)
 }
 // --- 🛑 END 🛑--- REST: END EDIT POST --- END -----
 
+
+
+// -🟢-------📺 MEDIA 🎥 -----------📺 MEDIA 🎥 -----------📺 MEDIA 🎥 ---------
+
 // -----------------------------------------------------------------------------
 /**
  * Handles MEDIA file uploads via the REST API. ---📺 MEDIA 🎥
@@ -1199,31 +1169,45 @@ function gpt_upload_media_endpoint($request)
     // --- Support image_url parameter ---
     $image_url = $request->get_param('image_url');
     if ($image_url) {
+        // Validate URL format
         if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
+            gpt_debug_log('[gpt_upload_media_endpoint] Invalid image URL provided', $image_url);
             return gpt_error_response('Invalid URL', 400);
         }
+
+        gpt_debug_log('[gpt_upload_media_endpoint] Downloading image from URL', $image_url);
         $response = wp_remote_get($image_url, ['timeout' => 15]);
         if (is_wp_error($response)) {
+            gpt_debug_log('[gpt_upload_media_endpoint] Unable to download image', $response->get_error_message());
             return gpt_error_response('Unable to download image: ' . $response->get_error_message(), 400);
         }
+
         $body = wp_remote_retrieve_body($response);
         if (empty($body)) {
+            gpt_debug_log('[gpt_upload_media_endpoint] Downloaded image is empty', $image_url);
             return gpt_error_response('Downloaded image is empty.', 400);
         }
+
         $file_name = sanitize_file_name(basename(parse_url($image_url, PHP_URL_PATH)));
         $filetype = wp_check_filetype($file_name);
         if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
+            gpt_debug_log('[gpt_upload_media_endpoint] Invalid file type for featured_image_url', $filetype['type']);
             return gpt_error_response('Invalid file type. Only JPEG, PNG, and GIF images are allowed.', 400);
         }
+
         $tmpfname = wp_tempnam($file_name);
         if (!$tmpfname) {
+            gpt_debug_log('[gpt_upload_media_endpoint] Could not create a temporary file for featured_image_url');
             return gpt_error_response('Could not create a temporary file.', 500);
         }
+
         $bytes_written = file_put_contents($tmpfname, $body);
         if ($bytes_written === false) {
             @unlink($tmpfname);
+            gpt_debug_log('[gpt_upload_media_endpoint] Failed to write image to temporary file for featured_image_url');
             return gpt_error_response('Failed to write image to temporary file.', 500);
         }
+
         $file = [
             'name' => $file_name,
             'type' => $filetype['type'],
@@ -1231,14 +1215,17 @@ function gpt_upload_media_endpoint($request)
             'error' => 0,
             'size' => filesize($tmpfname)
         ];
+
         $upload = wp_handle_sideload($file, ['test_form' => false]);
         @unlink($tmpfname);
         if (isset($upload['error'])) {
+            gpt_debug_log('[gpt_upload_media_endpoint] wp_handle_sideload error', $upload['error']);
             return gpt_error_response($upload['error'], 400);
         }
+
         $attachment = [
             'post_mime_type' => $upload['type'],
-            'post_title' => sanitize_file_name($file_name),
+            'post_title' => $file_name,
             'post_content' => '',
             'post_status' => 'inherit',
         ];
@@ -1246,13 +1233,20 @@ function gpt_upload_media_endpoint($request)
         require_once(ABSPATH . 'wp-admin/includes/image.php');
         $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
         wp_update_attachment_metadata($attach_id, $attach_data);
+
         return ['attachment_id' => $attach_id, 'url' => wp_get_attachment_url($attach_id)];
     }
 
+    // Fallback if no file or URL provided
     return gpt_error_response('No image URL or file provided', 400);
 }
-// --------END---📷--MEDIA file uploads ---📺 MEDIA 🎥 ---------
+// --🔴------END---📷--MEDIA file uploads ---📺 MEDIA 🎥 ---------
+// --🔴------END---📷--MEDIA file uploads ---📺 MEDIA 🎥 ---------
 
+
+// --🟢---🗺️---START-----SCHEMA-----🌎-----------START-----SCHEMA----🗺️-------
+// --------START-----SCHEMA----------------START-----SCHEMA------------------
+// --------START-----SCHEMA----------------START-----SCHEMA------------------
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic OpenAPI Schema Endpoint ---
 /**
@@ -1270,7 +1264,7 @@ function gpt_openapi_schema_handler()
     $schema = [
         'openapi' => '3.1.0',
         'info' => [
-            'title' => 'GPT-4-WP-Plugin v2 API',
+            'title' => 'GPT-4-WP-Plugin v2.b API',
             'version' => '2.0.0',
             'description' => 'Secure REST API for WordPress content creation and management by GPTs/clients.'
         ],
@@ -1303,6 +1297,20 @@ function gpt_openapi_schema_handler()
                         'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
                     ],
                     'required' => ['title', 'content']
+                ],
+                'MediaUpload' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'file' => ['type' => 'string', 'format' => 'binary', 'description' => 'File to be uploaded'],
+                        'image_url' => ['type' => 'string', 'format' => 'uri', 'description' => 'URL of the image to download and upload as media']
+                    ]
+                ],
+                'PingResponse' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'message' => ['type' => 'string'],
+                        'role' => ['type' => 'string']
+                    ]
                 ]
             ]
         ],
@@ -1319,17 +1327,16 @@ function gpt_openapi_schema_handler()
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'message' => ['type' => 'string'],
-                                            'role' => ['type' => 'string']
-                                        ]
+                                        '$ref' => '#/components/schemas/PingResponse'
                                     ]
                                 ]
                             ]
                         ],
                         '401' => [
                             'description' => 'Invalid or missing API key'
+                        ],
+                        '500' => [
+                            'description' => 'Internal server error, failed to connect or process request'
                         ]
                     ],
                     'security' => [['ApiKeyAuth' => []]]
@@ -1351,7 +1358,7 @@ function gpt_openapi_schema_handler()
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Post created',
+                            'description' => 'Post created successfully',
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
@@ -1362,8 +1369,21 @@ function gpt_openapi_schema_handler()
                                     ]
                                 ]
                             ]
+                        ],
+                        '400' => [
+                            'description' => 'Bad Request: Invalid input or missing required fields'
+                        ],
+                        '401' => [
+                            'description' => 'Unauthorized: Missing or invalid API key'
+                        ],
+                        '403' => [
+                            'description' => 'Forbidden: User does not have permission to create a post'
+                        ],
+                        '500' => [
+                            'description' => 'Internal server error, unable to create post'
                         ]
-                    ]
+                    ],
+                    'security' => [['ApiKeyAuth' => []]]
                 ]
             ],
             '/post/{id}' => [
@@ -1392,7 +1412,7 @@ function gpt_openapi_schema_handler()
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Post updated',
+                            'description' => 'Post updated successfully',
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
@@ -1403,8 +1423,24 @@ function gpt_openapi_schema_handler()
                                     ]
                                 ]
                             ]
+                        ],
+                        '400' => [
+                            'description' => 'Bad Request: Invalid input or missing required fields'
+                        ],
+                        '401' => [
+                            'description' => 'Unauthorized: Missing or invalid API key'
+                        ],
+                        '403' => [
+                            'description' => 'Forbidden: User does not have permission to edit this post'
+                        ],
+                        '404' => [
+                            'description' => 'Not Found: The post with the specified ID does not exist'
+                        ],
+                        '500' => [
+                            'description' => 'Internal server error, unable to update post'
                         ]
-                    ]
+                    ],
+                    'security' => [['ApiKeyAuth' => []]]
                 ]
             ],
             '/media' => [
@@ -1416,17 +1452,14 @@ function gpt_openapi_schema_handler()
                         'content' => [
                             'multipart/form-data' => [
                                 'schema' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'file' => ['type' => 'string', 'format' => 'binary']
-                                    ]
+                                    '$ref' => '#/components/schemas/MediaUpload'
                                 ]
                             ]
                         ]
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Media uploaded',
+                            'description' => 'Media uploaded successfully',
                             'content' => [
                                 'application/json' => [
                                     'schema' => [
@@ -1438,16 +1471,36 @@ function gpt_openapi_schema_handler()
                                     ]
                                 ]
                             ]
+                        ],
+                        '400' => [
+                            'description' => 'Bad Request: Invalid file type or URL'
+                        ],
+                        '401' => [
+                            'description' => 'Unauthorized: Missing or invalid API key'
+                        ],
+                        '403' => [
+                            'description' => 'Forbidden: User does not have permission to upload media'
+                        ],
+                        '404' => [
+                            'description' => 'Not Found: The media file URL is invalid or unreachable'
+                        ],
+                        '500' => [
+                            'description' => 'Internal server error, unable to upload media'
                         ]
-                    ]
+                    ],
+                    'security' => [['ApiKeyAuth' => []]]
                 ]
             ]
         ]
     ];
-    // Return the schema with dynamic paths and configuration
+
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
+// --------END-----SCHEMA----------------END-----SCHEMA--SECTION----------------
 
+
+
+// ---🔴-----END-----SCHEMA--------🌍--------END-----SCHEMA--SECTION-----🧭-----
 
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
@@ -1814,8 +1867,13 @@ function gpt_rmdir_recursive($dir)
     return rmdir($dir);
 }
 
+
+// --🔴---START---📸 Featured Image 🖼️ -------🎥 Featured Image Handling 
+
+// --🔴---START---📸 Featured Image 🖼️ -------🎥 Featured Image Handling 
+
 // -----------------------------------------------------------------------------
-// --- Featured image handling function ---
+// --- Featured image handling function ------📸 Featured Image 🖼️
 /**
  * Handles assignment of featured images to posts during creation or editing.
  *
@@ -1922,6 +1980,11 @@ function gpt_handle_featured_image($post_id, $params) {
         error_log("[GPT-4-WP-Plugin] No valid featured image set for post {$post_id}");
     }
 }
+// --🔴------END---📸 Featured Image 🖼️ -------🎥 Featured Image Handling
+
+
+// --🔴------END---📸 Featured Image 🖼️ -------🎥 Featured Image Handling 
+
 
 // -----------------------------------------------------------------------------
 // --- Create or retrieve a WordPress user for a GPT label and role ---
