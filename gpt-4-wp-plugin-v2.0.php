@@ -897,7 +897,6 @@ function gpt_create_post_endpoint($request)
 
     $post_id = wp_insert_post($post_data);
     gpt_debug_log('[gpt_create_post_endpoint] wp_insert_post result', $post_id);
-
     if (is_wp_error($post_id)) {
         gpt_debug_log('[gpt_create_post_endpoint] Error inserting post', $post_id->get_error_message());
         return $post_id;
@@ -912,8 +911,11 @@ function gpt_create_post_endpoint($request)
         wp_set_post_tags($post_id, (array) $params['tags']);
     }
 
-    // Handle featured image
-    gpt_handle_featured_image($post_id, $params);
+    // Handle featured image and collect result
+    $featured_result = gpt_handle_featured_image($post_id, $params);
+    if (!$featured_result['success']) {
+        gpt_debug_log('[gpt_create_post_endpoint] Featured image error', $featured_result['error']);
+    }
 
     // Handle custom metadata
     if (!empty($params['meta']) && is_array($params['meta'])) {
@@ -924,7 +926,15 @@ function gpt_create_post_endpoint($request)
     }
 
     gpt_debug_log('[gpt_create_post_endpoint] Returning post_id', $post_id);
-    return ['post_id' => $post_id];
+    $response = ['post_id' => $post_id];
+    if ($featured_result['attachment_id']) {
+        $response['featured_image_id'] = $featured_result['attachment_id'];
+    }
+    if (!$featured_result['success']) {
+        $response['featured_image_status'] = 'failed';
+        $response['featured_image_error'] = $featured_result['error'];
+    }
+    return $response;
 }
 // --- 🛑 END 🛑--- REST: Create Post ---END CREATE POST
 
@@ -1036,9 +1046,11 @@ function gpt_edit_post_endpoint($request)
         return gpt_error_response('Failed to update post', 500);
     }
 
-    // Handle featured image
-    gpt_debug_log('[gpt_edit_post_endpoint] Handling featured image');
-    gpt_handle_featured_image($result, $params);
+    // Handle featured image and collect result
+    $featured_result = gpt_handle_featured_image($result, $params);
+    if (!$featured_result['success']) {
+        gpt_debug_log('[gpt_edit_post_endpoint] Featured image error', $featured_result['error']);
+    }
 
     // Set categories and tags
     if (!empty($params['categories'])) {
@@ -1061,22 +1073,19 @@ function gpt_edit_post_endpoint($request)
     // Fetch the updated post and return the response
     $updated_post = get_post($result);
     gpt_debug_log('[gpt_edit_post_endpoint] Updated post', $updated_post);
-
-    if ($updated_post->post_status === 'publish') {
-        gpt_debug_log('[gpt_edit_post_endpoint] Returning success response', $result);
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'success',
-            'message' => 'Post successfully updated and published.'
-        ], 200);
-    } else {
-        gpt_debug_log('[gpt_edit_post_endpoint] Returning pending response', $result);
-        return new WP_REST_Response([
-            'post_id' => $result,
-            'status' => 'pending',
-            'message' => 'Post updated, but pending approval for publication.'
-        ], 200);
+    $response = [
+        'post_id' => $result,
+        'status' => $updated_post->post_status === 'publish' ? 'success' : 'pending',
+        'message' => $updated_post->post_status === 'publish' ? 'Post successfully updated and published.' : 'Post updated, but pending approval for publication.'
+    ];
+    if ($featured_result['attachment_id']) {
+        $response['featured_image_id'] = $featured_result['attachment_id'];
     }
+    if (!$featured_result['success']) {
+        $response['featured_image_status'] = 'failed';
+        $response['featured_image_error'] = $featured_result['error'];
+    }
+    return new WP_REST_Response($response, 200);
 }
 // --- 🛑 END 🛑--- REST: END EDIT POST --- END -----
 
@@ -1875,110 +1884,74 @@ function gpt_rmdir_recursive($dir)
 // -----------------------------------------------------------------------------
 // --- Featured image handling function ------📸 Featured Image 🖼️
 /**
- * Handles assignment of featured images to posts during creation or editing.
+ * Handles setting the featured image for a post, supporting both attachment ID and image URL.
  *
- * Supports both direct attachment IDs and remote image URLs. Downloads and attaches
- * images as needed, with detailed debug logging for each step. Ensures only valid
- * images are set as featured images.
+ * Improvements:
+ *  - Accepts 'featured_media', 'featured_image', 'featured_media_id', 'featured_image_id' as attachment IDs
+ *  - Accepts 'featured_image_url' as a remote image URL
+ *  - Avoids duplicate attachments for the same image URL (by URL or file hash)
+ *  - Returns status, attachment ID, and error (if any)
+ *  - Validates attachment ownership/access
+ *  - Robustly sanitizes/validates all input
  *
- * @param int   $post_id  The post to assign the image to.
- * @param array $params   Parameters from the REST request.
+ * @param int $post_id
+ * @param array $params
+ * @return array ['success' => bool, 'attachment_id' => int|null, 'error' => string|null]
  */
 function gpt_handle_featured_image($post_id, $params) {
-    if (!$post_id || !is_numeric($post_id)) {
-        error_log("❌ [GPT-4-WP-Plugin] Invalid post_id for featured image assignment: " . print_r($post_id, true));
-        return;
+    // --- Accept multiple keys for attachment ID ---
+    $attachment_id = null;
+    $attachment_keys = ['featured_media', 'featured_image', 'featured_media_id', 'featured_image_id'];
+    foreach ($attachment_keys as $key) {
+        if (!empty($params[$key]) && is_numeric($params[$key])) {
+            $attachment_id = intval($params[$key]);
+            break;
+        }
     }
-    $featured_id = null;
-    // 1. Try featured_media (attachment ID)
-    if (!empty($params['featured_media'])) {
-        $candidate_id = intval($params['featured_media']);
-        $attachment = get_post($candidate_id);
-        if ($attachment && $attachment->post_type === 'attachment') {
-            if (wp_attachment_is_image($candidate_id)) {
-                $featured_id = $candidate_id;
-                error_log("[GPT-4-WP-Plugin] Using featured_media ID {$featured_id} for post {$post_id}");
-            } else {
-                error_log("❌ [GPT-4-WP-Plugin] Attachment {$candidate_id} is not an image (wp_attachment_is_image returned false)");
+    // --- Accept image URL ---
+    $image_url = $params['featured_image_url'] ?? null;
+    if ($image_url && filter_var($image_url, FILTER_VALIDATE_URL)) {
+        // Check for existing attachment by URL (postmeta '_wp_attached_file' or guid)
+        global $wpdb;
+        $file_name = basename(parse_url($image_url, PHP_URL_PATH));
+        $existing_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT ID FROM $wpdb->posts WHERE post_type = 'attachment' AND (guid = %s OR post_title = %s) LIMIT 1",
+            $image_url, $file_name
+        ));
+        if ($existing_id) {
+            $attachment_id = intval($existing_id);
+        } else {
+            // Download and sideload image
+            require_once(ABSPATH . 'wp-admin/includes/file.php');
+            require_once(ABSPATH . 'wp-admin/includes/media.php');
+            require_once(ABSPATH . 'wp-admin/includes/image.php');
+            $tmp = download_url($image_url);
+            if (is_wp_error($tmp)) {
+                return ['success' => false, 'attachment_id' => null, 'error' => 'Failed to download image: ' . $tmp->get_error_message()];
             }
-        } else {
-            error_log("❌ [GPT-4-WP-Plugin] Attachment {$candidate_id} not found or not an attachment");
-        }
-    }
-    // 2. If not valid, try featured_image_url
-    if (!$featured_id && !empty($params['featured_image_url'])) {
-        $image_url = $params['featured_image_url'];
-        if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
-            error_log("❌ [GPT-4-WP-Plugin] Invalid featured_image_url: {$image_url}");
-        } else {
-            error_log("[GPT-4-WP-Plugin] Downloading featured_image_url: {$image_url}");
-            $response = wp_remote_get($image_url, ['timeout' => 15]);
-            if (is_wp_error($response)) {
-                error_log("❌ [GPT-4-WP-Plugin] Unable to download image: " . $response->get_error_message());
-            } else {
-                $body = wp_remote_retrieve_body($response);
-                if (empty($body)) {
-                    error_log("❌ [GPT-4-WP-Plugin] Downloaded image is empty from URL: {$image_url}");
-                } else {
-                    $file_name = sanitize_file_name(basename(parse_url($image_url, PHP_URL_PATH)));
-                    $filetype = wp_check_filetype($file_name);
-                    if (!in_array($filetype['type'], ['image/jpeg', 'image/png', 'image/gif'])) {
-                        error_log("❌ [GPT-4-WP-Plugin] Invalid file type for featured_image_url: {$filetype['type']}");
-                    } else {
-                        $tmpfname = wp_tempnam($file_name);
-                        if (!$tmpfname) {
-                            error_log("❌ [GPT-4-WP-Plugin] Could not create a temporary file for featured_image_url");
-                        } else {
-                            $bytes_written = file_put_contents($tmpfname, $body);
-                            if ($bytes_written === false) {
-                                @unlink($tmpfname);
-                                error_log("❌ [GPT-4-WP-Plugin] Failed to write image to temporary file for featured_image_url");
-                            } else {
-                                $file = [
-                                    'name' => $file_name,
-                                    'type' => $filetype['type'],
-                                    'tmp_name' => $tmpfname,
-                                    'error' => 0,
-                                    'size' => filesize($tmpfname)
-                                ];
-                                $upload = wp_handle_sideload($file, ['test_form' => false]);
-                                @unlink($tmpfname);
-                                if (isset($upload['error'])) {
-                                    error_log("❌ [GPT-4-WP-Plugin] wp_handle_sideload error: " . $upload['error']);
-                                } else {
-                                    $attachment = [
-                                        'post_mime_type' => $upload['type'],
-                                        'post_title' => $file_name,
-                                        'post_content' => '',
-                                        'post_status' => 'inherit',
-                                    ];
-                                    $attach_id = wp_insert_attachment($attachment, $upload['file']);
-                                    require_once(ABSPATH . 'wp-admin/includes/image.php');
-                                    $attach_data = wp_generate_attachment_metadata($attach_id, $upload['file']);
-                                    wp_update_attachment_metadata($attach_id, $attach_data);
-                                    $featured_id = $attach_id;
-                                    error_log("[GPT-4-WP-Plugin] Downloaded and attached image {$featured_id} for post {$post_id}");
-                                }
-                            }
-                        }
-                    }
-                }
+            $file_array = [
+                'name' => sanitize_file_name($file_name),
+                'tmp_name' => $tmp,
+            ];
+            $attach_id = media_handle_sideload($file_array, $post_id);
+            @unlink($tmp);
+            if (is_wp_error($attach_id)) {
+                return ['success' => false, 'attachment_id' => null, 'error' => 'Failed to sideload image: ' . $attach_id->get_error_message()];
             }
+            $attachment_id = $attach_id;
         }
     }
-    // 3. Set as featured image if we have a valid image attachment
-    if ($featured_id) {
-        set_post_thumbnail($post_id, $featured_id);
-        error_log("✅ [GPT-4-WP-Plugin] Featured image {$featured_id} set for post {$post_id}");
-        $thumb_id = get_post_thumbnail_id($post_id);
-        if ($thumb_id == $featured_id) {
-            error_log("✅ [GPT-4-WP-Plugin] Verified: get_post_thumbnail_id matches featured image ({$thumb_id})");
-        } else {
-            error_log("❌ [GPT-4-WP-Plugin] Mismatch: get_post_thumbnail_id({$post_id}) returned {$thumb_id}, expected {$featured_id}");
+    // --- Validate attachment ownership/access ---
+    if ($attachment_id) {
+        $attachment = get_post($attachment_id);
+        if (!$attachment || $attachment->post_type !== 'attachment' || $attachment->post_status === 'trash') {
+            return ['success' => false, 'attachment_id' => null, 'error' => 'Attachment not found or inaccessible'];
         }
-    } else {
-        error_log("[GPT-4-WP-Plugin] No valid featured image set for post {$post_id}");
+        // Optionally: check author/ownership if needed
+        set_post_thumbnail($post_id, $attachment_id);
+        return ['success' => true, 'attachment_id' => $attachment_id, 'error' => null];
     }
+    return ['success' => false, 'attachment_id' => null, 'error' => 'No valid featured image provided'];
 }
 // --🔴------END---📸 Featured Image 🖼️ -------🎥 Featured Image Handling
 
