@@ -1,18 +1,19 @@
 # GPT-4-WP-Plugin v2.0
 
-A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment..
+A clean, modern WordPress plugin providing a secure REST API for GPT-based agents and clients to interact with WordPress. All logic is contained in a single file for easy setup and deployment.
 
 ## Features
-- **Pre-configured GPTs:** WebMaster.GPT, Linda.GPT (Webmaster); AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT (Publisher); CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT (Editor) — all auto-linked to all sites, no manual setup needed
+- **Pre-configured GPTs:** WebMaster.GPT, Linda.GPT, AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT, CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT — all auto-linked to all sites, no manual setup needed
 - **Preconfigured Site Domains:** 15 supported domains are hardcoded and selectable in the admin UI. The plugin dynamically configures all endpoints and links based on the selected site. (See "How Preconfiguration Works" below.)
 - **API key management:** Create, assign roles, label, and revoke API keys via the admin UI
-- **Role-based access control:** Four roles (Administrator/gpt_admin, Webmaster, Publisher, Editor) with distinct capabilities
+- **Role-based access control:** Three roles (Webmaster, Publisher, Editor) with distinct capabilities (plus internal gpt_admin for file management)
 - **REST API endpoints:**
   - Create and edit posts
-  - Upload media
+  - Upload media (file or remote URL)
   - **Full plugin file management for gpt_admin (WebMaster.GPT):**
     - List, read, write, create, and delete files/directories within the plugin folder (for diagnostics, troubleshooting, and advanced support)
-- **Dynamic OpenAPI 3.0 schema:** `/wp-json/gpt/v1/openapi`
+  - **Dedicated /ping endpoint** for API connectivity and key validation
+- **Dynamic OpenAPI 3.1 schema:** `/wp-json/gpt/v1/openapi` (fully documents all advanced editorial and image fields, responses, and errors)
 - **Dynamic ai-plugin.json endpoint:** `/wp-json/gpt/v1/ai-plugin.json`
 - **Admin UI includes:**
   - Pre-configured GPTs table (read-only)
@@ -20,7 +21,7 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
   - API key management (generate, list, revoke, assign, label)
   - Site ping test (both GPT→WordPress and WordPress→GPT)
   - REST endpoint diagnostics and status (now split into two columns for clarity)
-  - Recent API error log display.
+  - Recent API error log display
 - **All code in a single file:** Easy to install, portable, and maintainable
 - **Automatic permalink flush on activation/deactivation:** REST routes work immediately without manual resets
 
@@ -31,7 +32,7 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 ### Pre-configured GPTs
 - The plugin hardcodes a list of built-in GPTs in the function `gpt_get_preconfigured_gpts()`.
 - These GPTs (WebMaster.GPT, Linda.GPT, AgentX.GPT, Automatron.GPT, SEO-Inspector.GPT, CrownLeads.GPT, Leadsy.GPT, VIRALIA.GPT) are always present, auto-linked to all sites, and shown in the admin UI.
-- Each GPT is mapped to a specific role (Administrator, Webmaster, Publisher, Editor) and cannot be removed or edited for security and simplicity.
+- Each GPT is mapped to a specific role (Webmaster, Publisher, Editor) and cannot be removed or edited for security and simplicity.
 - The admin UI displays the API key (if generated) for each preconfigured GPT.
 
 ### Preconfigured Site Domains
@@ -47,9 +48,7 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 1. **Copy the file** `gpt-4-wp-plugin-v2.0.php` into your WordPress `/wp-content/plugins/` directory.
 2. **Activate the plugin** in the WordPress admin (Plugins > Installed Plugins).
 3. **Go to Tools > GPT API Keys** in the WordPress admin to select your site and view pre-configured GPTs. Generate additional API keys as needed.
-4. **Use the API key** as the `gpt-api-key` header in your HTTP requests or GPT/ChatGPT plugin configuration.
-   The plugin will automatically apply the role associated with the API key, so the
-   `gpt_role` parameter is optional.
+4. **Use the API key** as the `gpt-api-key` header in your HTTP requests or GPT/ChatGPT plugin configuration. The plugin will automatically apply the role associated with the API key, so the `gpt_role` parameter is optional.
 5. **Connect GPT/ChatGPT** by providing the dynamic manifest URL: `https://your-site.com/wp-json/gpt/v1/ai-plugin.json`.
 6. **Test endpoints** using tools like Postman, curl, or directly from your GPT/ChatGPT plugin.
 
@@ -61,19 +60,17 @@ A clean, modern WordPress plugin providing a secure REST API for GPT-based agent
 - **API Key Management:** Generate, label, assign, and revoke API keys for additional GPT agents/clients.
 - **Site Ping Test:**
   - **WordPress → GPT:** Ping button in admin UI tests outbound connectivity to the REST API.
-  - **GPT → WordPress:** Use the GET `/wp-json/gpt/v1/post` endpoint from your agent to test inbound connectivity and API key validity.
+  - **GPT → WordPress:** Use the GET `/wp-json/gpt/v1/ping` endpoint from your agent to test inbound connectivity and API key validity.
 - **REST Endpoint Diagnostics:** Status checks for OpenAPI, ai-plugin.json, permalinks, HTTPS, REST API, PHP extensions, and recent API errors. (Now displayed in two columns for better readability.)
 
 ---
 
 ## REST API Endpoints
 
-All endpoints require the `gpt-api-key` header with a valid API key.
-The role tied to the API key is used automatically; include `gpt_role` only if you
-need to explicitly specify it.
+All endpoints require the `gpt-api-key` header with a valid API key. The role tied to the API key is used automatically; include `gpt_role` only if you need to explicitly specify it.
 
 ### 1. **Ping (Agent → WordPress)**
-- **GET** `/wp-json/gpt/v1/post`
+- **GET** `/wp-json/gpt/v1/ping`
 - **Purpose:** Check if the WordPress site and API key are reachable/valid from your agent.
 - **Headers:**
   - `gpt-api-key: YOUR_API_KEY`
@@ -103,31 +100,26 @@ need to explicitly specify it.
 {
   "title": "My Article Title",
   "content": "<p>Full HTML content</p>",
-  "excerpt": "Short summary (HTML stripped and trimmed to 55 words)",
+  "excerpt": "Short summary (HTML stripped and trimmed to 200 chars)",
   "categories": [1, 2],
   "tags": ["tag1", "tag2"],
   "featured_image": 123,
+  "featured_image_url": "https://example.com/image.jpg",
   "format": "standard",
   "slug": "my-article-title",
   "post_status": "publish",
-  "post_date": "2025-06-26 10:00:00",
+  "post_date": "2025-06-26T10:00:00Z",
   "meta": {
     "_yoast_wpseo_metadesc": "SEO meta description",
     "_rank_math_focus_keyword": "focus keyword"
   }
 }
 ```
-If `post_date` is set to a future time, the plugin will schedule the post by automatically setting its status to `future`.
-- **Response (201):**
+- **Response (200):**
 ```json
 {
   "post_id": 1234,
-  "post_status": "publish",
-  "author": 2,
-  "meta": {
-    "_yoast_wpseo_metadesc": "SEO meta description",
-    "_rank_math_focus_keyword": "focus keyword"
-  }
+  "featured_image_id": 5678
 }
 ```
 - **Response (error):**
@@ -151,19 +143,18 @@ If `post_date` is set to a future time, the plugin will schedule the post by aut
   "content": "Updated content"
 }
 ```
-To reschedule an existing post, pass a new `post_date` value. If the supplied
-time is in the future the post will be scheduled automatically and its status
-set to `future`.
+To reschedule an existing post, pass a new `post_date` value. If the supplied time is in the future the post will be scheduled automatically and its status set to `future`.
 ```json
 {
-  "post_date": "2025-06-30 09:00:00"
+  "post_date": "2025-06-30T09:00:00Z"
 }
 ```
- - **Response (200):**
+- **Response (200):**
 ```json
 {
   "post_id": 1234,
-  "post_status": "publish"
+  "status": "success",
+  "message": "Post successfully updated and published."
 }
 ```
 - **Response (error):**
@@ -178,11 +169,8 @@ set to `future`.
 ### 4. **Upload Media**
 - **POST** `/wp-json/gpt/v1/media`
 - **Headers:**
-  - `Content-Type: multipart/form-data`
+  - `Content-Type: multipart/form-data` or `application/json`
   - `gpt-api-key: YOUR_API_KEY`
-- **Query Params:**
-  - `post_id` *(optional)*: attach the upload to a post
-  - `featured` *(optional, boolean)*: set to `true` when uploading a featured image
 - **Body:**
   - `file`: (binary file upload) or `image_url`: URL to download the image
 - **Response (200):**
@@ -196,12 +184,12 @@ set to `future`.
 ```json
 {
   "code": "gpt_error",
-  "message": "No file uploaded",
+  "message": "No image URL or file provided",
   "data": {"status": 400}
 }
 ```
 
-When `post_id` or `featured` is used, the upload is treated as a featured image and **must** be an image file (`image/*`).
+When `featured` is used, the upload is treated as a featured image and **must** be an image file (`image/*`).
 
 ### 5. **Plugin File Management (gpt_admin only)**
 > **Note:** These endpoints are only available to API keys with the `gpt_admin` role (e.g. WebMaster.GPT). All file/folder access is strictly limited to the plugin directory for security.
@@ -281,13 +269,13 @@ When `post_id` or `featured` is used, the upload is treated as a featured image 
 ---
 
 ## OpenAPI & Manifest
-- **OpenAPI 3.0 schema:** `https://your-site.com/wp-json/gpt/v1/openapi`
+- **OpenAPI 3.1 schema:** `https://your-site.com/wp-json/gpt/v1/openapi`
 - **ai-plugin.json manifest:** `https://your-site.com/wp-json/gpt/v1/ai-plugin.json`
 
 ---
 
 ## Role Capabilities
-- **Administrator (gpt_admin):** Full access to all endpoints and actions, including plugin file management and diagnostics
+- **gpt_admin (internal):** Full access to all endpoints and actions, including plugin file management and diagnostics (used by WebMaster.GPT)
 - **Webmaster:** Full access to all endpoints except plugin file management
 - **Publisher:** Can create, edit, and publish posts/media
 - **Editor:** Can create and edit drafts, upload media (no publishing)
