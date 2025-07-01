@@ -1273,7 +1273,7 @@ function gpt_openapi_schema_handler()
     $schema = [
         'openapi' => '3.1.0',
         'info' => [
-            'title' => 'GPT-4-WP-Plugin v2.bc API',
+            'title' => 'GPT-4-WP-Plugin v2.0 API',
             'version' => '2.0.0',
             'description' => 'Secure REST API for WordPress content creation and management by GPTs/clients.'
         ],
@@ -1294,40 +1294,19 @@ function gpt_openapi_schema_handler()
                     'properties' => [
                         'title' => ['type' => 'string', 'description' => 'Post title'],
                         'content' => ['type' => 'string', 'description' => 'Post content (HTML allowed)'],
-                        'excerpt' => ['type' => 'string', 'description' => 'Post excerpt'],
+                        'excerpt' => ['type' => 'string', 'description' => 'Post excerpt (max 200 chars, sanitized)'],
                         'categories' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Category IDs'],
-                        'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag names'],
+                        'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tags'],
+                        'post_status' => ['type' => 'string', 'enum' => ['publish', 'draft', 'pending', 'private', 'future'], 'description' => 'Post status'],
+                        'format' => ['type' => 'string', 'description' => 'Post format'],
                         'slug' => ['type' => 'string', 'description' => 'Post slug'],
-                        'post_status' => ['type' => 'string', 'description' => 'Post status (publish, draft, pending, private)'],
-                        'post_format' => ['type' => 'string', 'description' => 'Post format'],
-                        'post_date' => ['type' => 'string', 'format' => 'date-time', 'description' => 'Post date (ISO 8601)'],
-                        // Featured image fields
-                        'featured_image_url' => [
-                            'type' => 'string',
-                            'format' => 'uri',
-                            'description' => 'Remote image URL to set as featured image'
-                        ],
-                        'featured_media' => [
-                            'type' => 'integer',
-                            'description' => 'Attachment ID for featured image'
-                        ],
-                        'featured_image' => [
-                            'type' => 'integer',
-                            'description' => 'Attachment ID for featured image'
-                        ],
-                        'featured_media_id' => [
-                            'type' => 'integer',
-                            'description' => 'Attachment ID for featured image'
-                        ],
-                        'featured_image_id' => [
-                            'type' => 'integer',
-                            'description' => 'Attachment ID for featured image'
-                        ],
-                        'meta' => [
-                            'type' => 'object',
-                            'additionalProperties' => ['type' => 'string'],
-                            'description' => 'Custom meta fields'
-                        ]
+                        'post_date' => ['type' => 'string', 'format' => 'date-time', 'description' => 'Post date (future = scheduled)'],
+                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string'], 'description' => 'Custom meta fields (SEO, etc)'],
+                        'featured_media' => ['type' => 'integer', 'description' => 'Attachment ID for featured image'],
+                        'featured_image' => ['type' => 'integer', 'description' => 'Attachment ID for featured image'],
+                        'featured_media_id' => ['type' => 'integer', 'description' => 'Attachment ID for featured image'],
+                        'featured_image_id' => ['type' => 'integer', 'description' => 'Attachment ID for featured image'],
+                        'featured_image_url' => ['type' => 'string', 'format' => 'uri', 'description' => 'Remote image URL for featured image (JPEG, PNG, GIF only)']
                     ],
                     'required' => ['title', 'content']
                 ],
@@ -1335,28 +1314,31 @@ function gpt_openapi_schema_handler()
                     'type' => 'object',
                     'properties' => [
                         'post_id' => ['type' => 'integer'],
+                        'post_status' => ['type' => 'string'],
                         'featured_image_id' => ['type' => 'integer'],
+                        'featured_image_url' => ['type' => 'string', 'format' => 'uri'],
                         'featured_image_status' => ['type' => 'string'],
                         'featured_image_error' => ['type' => 'string'],
-                        'status' => ['type' => 'string'],
+                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']],
                         'message' => ['type' => 'string']
                     ]
                 ],
                 'MediaUpload' => [
                     'type' => 'object',
                     'properties' => [
-                        'image_url' => [
-                            'type' => 'string',
-                            'format' => 'uri',
-                            'description' => 'Remote image URL to upload as media'
-                        ]
+                        'file' => ['type' => 'string', 'format' => 'binary', 'description' => 'Image file upload (JPEG, PNG, GIF, max 5MB)'],
+                        'image_url' => ['type' => 'string', 'format' => 'uri', 'description' => 'Remote image URL (JPEG, PNG, GIF, max 5MB)']
                     ]
                 ],
-                'MediaUploadResponse' => [
+                'MediaResponse' => [
                     'type' => 'object',
                     'properties' => [
                         'attachment_id' => ['type' => 'integer'],
-                        'url' => ['type' => 'string', 'format' => 'uri']
+                        'url' => ['type' => 'string', 'format' => 'uri'],
+                        'mime_type' => ['type' => 'string'],
+                        'file_size' => ['type' => 'integer'],
+                        'width' => ['type' => 'integer'],
+                        'height' => ['type' => 'integer']
                     ]
                 ],
                 'ErrorResponse' => [
@@ -1364,7 +1346,17 @@ function gpt_openapi_schema_handler()
                     'properties' => [
                         'code' => ['type' => 'string'],
                         'message' => ['type' => 'string'],
-                        'data' => ['type' => 'object']
+                        'data' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'function' => ['type' => 'string'],
+                                'parameter' => ['type' => 'string'],
+                                'attempted_value' => ['type' => 'string'],
+                                'role' => ['type' => 'string'],
+                                'status' => ['type' => 'integer']
+                            ],
+                            'additionalProperties' => true
+                        ]
                     ]
                 ],
                 'PingResponse' => [
@@ -1393,7 +1385,7 @@ function gpt_openapi_schema_handler()
                             ]
                         ],
                         '401' => [
-                            'description' => 'Unauthorized',
+                            'description' => 'Unauthorized: Missing or invalid API key',
                             'content' => [
                                 'application/json' => [
                                     'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
@@ -1412,24 +1404,7 @@ function gpt_openapi_schema_handler()
                         'required' => true,
                         'content' => [
                             'application/json' => [
-                                'schema' => ['\$ref' => '#/components/schemas/PostInput'],
-                                'examples' => [
-                                    'basic' => [
-                                        'summary' => 'Basic post',
-                                        'value' => [
-                                            'title' => 'My Article',
-                                            'content' => '<p>Content</p>'
-                                        ]
-                                    ],
-                                    'with_featured_image' => [
-                                        'summary' => 'Post with featured image',
-                                        'value' => [
-                                            'title' => 'With Image',
-                                            'content' => '<p>Content</p>',
-                                            'featured_image_url' => 'https://example.com/image.jpg'
-                                        ]
-                                    ]
-                                ]
+                                'schema' => ['\$ref' => '#/components/schemas/PostInput']
                             ]
                         ]
                     ],
@@ -1559,28 +1534,11 @@ function gpt_openapi_schema_handler()
                     'requestBody' => [
                         'required' => true,
                         'content' => [
-                            'application/json' => [
-                                'schema' => ['\$ref' => '#/components/schemas/MediaUpload'],
-                                'examples' => [
-                                    'remote_url' => [
-                                        'summary' => 'Upload from remote URL',
-                                        'value' => [
-                                            'image_url' => 'https://example.com/image.jpg'
-                                        ]
-                                    ]
-                                ]
-                            ],
                             'multipart/form-data' => [
-                                'schema' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'file' => [
-                                            'type' => 'string',
-                                            'format' => 'binary',
-                                            'description' => 'Image file to upload'
-                                        ]
-                                    ]
-                                ]
+                                'schema' => ['\$ref' => '#/components/schemas/MediaUpload']
+                            ],
+                            'application/json' => [
+                                'schema' => ['\$ref' => '#/components/schemas/MediaUpload']
                             ]
                         ]
                     ],
@@ -1589,12 +1547,12 @@ function gpt_openapi_schema_handler()
                             'description' => 'Media uploaded',
                             'content' => [
                                 'application/json' => [
-                                    'schema' => ['\$ref' => '#/components/schemas/MediaUploadResponse']
+                                    'schema' => ['\$ref' => '#/components/schemas/MediaResponse']
                                 ]
                             ]
                         ],
                         '400' => [
-                            'description' => 'Bad Request: Invalid file type or URL',
+                            'description' => 'Bad Request: Invalid file type, file too large, or missing image URL',
                             'content' => [
                                 'application/json' => [
                                     'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
@@ -1642,9 +1600,6 @@ function gpt_openapi_schema_handler()
 
     return new WP_REST_Response($schema, 200, ['Content-Type' => 'application/json']);
 }
-// --------END-----SCHEMA----------------END-----SCHEMA--SECTION----------------
-
-
 
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
