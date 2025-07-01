@@ -1255,7 +1255,6 @@ function gpt_upload_media_endpoint($request)
 
 // --🟢---🗺️---START-----SCHEMA-----🌎-----------START-----SCHEMA----🗺️-------
 // --------START-----SCHEMA----------------START-----SCHEMA------------------
-// --------START-----SCHEMA----------------START-----SCHEMA------------------
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic OpenAPI Schema Endpoint ---
 /**
@@ -1292,26 +1291,79 @@ function gpt_openapi_schema_handler()
                 'PostInput' => [
                     'type' => 'object',
                     'properties' => [
-                        'title' => ['type' => 'string'],
-                        'content' => ['type' => 'string'],
-                        'excerpt' => ['type' => 'string'],
-                        'categories' => ['type' => 'array', 'items' => ['type' => 'integer']],
-                        'tags' => ['type' => 'array', 'items' => ['oneOf' => [['type' => 'string'], ['type' => 'integer']]]],
-                        'featured_image' => ['type' => 'integer'],
-                        'format' => ['type' => 'string'],
-                        'slug' => ['type' => 'string'],
-                        'author' => ['type' => 'integer'],
-                        'post_status' => ['type' => 'string'],
-                        'post_date' => ['type' => 'string'],
-                        'meta' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']]
+                        'title' => ['type' => 'string', 'description' => 'Post title'],
+                        'content' => ['type' => 'string', 'description' => 'Post content (HTML allowed)'],
+                        'excerpt' => ['type' => 'string', 'description' => 'Post excerpt'],
+                        'categories' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Category IDs'],
+                        'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag names'],
+                        'slug' => ['type' => 'string', 'description' => 'Post slug'],
+                        'post_status' => ['type' => 'string', 'description' => 'Post status (publish, draft, pending, private)'],
+                        'post_format' => ['type' => 'string', 'description' => 'Post format'],
+                        'post_date' => ['type' => 'string', 'format' => 'date-time', 'description' => 'Post date (ISO 8601)'],
+                        // Featured image fields
+                        'featured_image_url' => [
+                            'type' => 'string',
+                            'format' => 'uri',
+                            'description' => 'Remote image URL to set as featured image'
+                        ],
+                        'featured_media' => [
+                            'type' => 'integer',
+                            'description' => 'Attachment ID for featured image'
+                        ],
+                        'featured_image' => [
+                            'type' => 'integer',
+                            'description' => 'Attachment ID for featured image'
+                        ],
+                        'featured_media_id' => [
+                            'type' => 'integer',
+                            'description' => 'Attachment ID for featured image'
+                        ],
+                        'featured_image_id' => [
+                            'type' => 'integer',
+                            'description' => 'Attachment ID for featured image'
+                        ],
+                        'meta' => [
+                            'type' => 'object',
+                            'additionalProperties' => ['type' => 'string'],
+                            'description' => 'Custom meta fields'
+                        ]
                     ],
                     'required' => ['title', 'content']
+                ],
+                'PostResponse' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'post_id' => ['type' => 'integer'],
+                        'featured_image_id' => ['type' => 'integer'],
+                        'featured_image_status' => ['type' => 'string'],
+                        'featured_image_error' => ['type' => 'string'],
+                        'status' => ['type' => 'string'],
+                        'message' => ['type' => 'string']
+                    ]
                 ],
                 'MediaUpload' => [
                     'type' => 'object',
                     'properties' => [
-                        'file' => ['type' => 'string', 'format' => 'binary', 'description' => 'File to be uploaded'],
-                        'image_url' => ['type' => 'string', 'format' => 'uri', 'description' => 'URL of the image to download and upload as media']
+                        'image_url' => [
+                            'type' => 'string',
+                            'format' => 'uri',
+                            'description' => 'Remote image URL to upload as media'
+                        ]
+                    ]
+                ],
+                'MediaUploadResponse' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'attachment_id' => ['type' => 'integer'],
+                        'url' => ['type' => 'string', 'format' => 'uri']
+                    ]
+                ],
+                'ErrorResponse' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'code' => ['type' => 'string'],
+                        'message' => ['type' => 'string'],
+                        'data' => ['type' => 'object']
                     ]
                 ],
                 'PingResponse' => [
@@ -1335,17 +1387,17 @@ function gpt_openapi_schema_handler()
                             'description' => 'Ping successful',
                             'content' => [
                                 'application/json' => [
-                                    'schema' => [
-                                        '$ref' => '#/components/schemas/PingResponse'
-                                    ]
+                                    'schema' => ['\$ref' => '#/components/schemas/PingResponse']
                                 ]
                             ]
                         ],
                         '401' => [
-                            'description' => 'Invalid or missing API key'
-                        ],
-                        '500' => [
-                            'description' => 'Internal server error, failed to connect or process request'
+                            'description' => 'Unauthorized',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ]
                     ],
                     'security' => [['ApiKeyAuth' => []]]
@@ -1359,37 +1411,67 @@ function gpt_openapi_schema_handler()
                         'required' => true,
                         'content' => [
                             'application/json' => [
-                                'schema' => [
-                                    '$ref' => '#/components/schemas/PostInput'
+                                'schema' => ['\$ref' => '#/components/schemas/PostInput'],
+                                'examples' => [
+                                    'basic' => [
+                                        'summary' => 'Basic post',
+                                        'value' => [
+                                            'title' => 'My Article',
+                                            'content' => '<p>Content</p>'
+                                        ]
+                                    ],
+                                    'with_featured_image' => [
+                                        'summary' => 'Post with featured image',
+                                        'value' => [
+                                            'title' => 'With Image',
+                                            'content' => '<p>Content</p>',
+                                            'featured_image_url' => 'https://example.com/image.jpg'
+                                        ]
+                                    ]
                                 ]
                             ]
                         ]
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Post created successfully',
+                            'description' => 'Post created',
                             'content' => [
                                 'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'post_id' => ['type' => 'integer']
-                                        ]
-                                    ]
+                                    'schema' => ['\$ref' => '#/components/schemas/PostResponse']
                                 ]
                             ]
                         ],
                         '400' => [
-                            'description' => 'Bad Request: Invalid input or missing required fields'
+                            'description' => 'Bad Request: Invalid input or missing required fields',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '401' => [
-                            'description' => 'Unauthorized: Missing or invalid API key'
+                            'description' => 'Unauthorized: Missing or invalid API key',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '403' => [
-                            'description' => 'Forbidden: User does not have permission to create a post'
+                            'description' => 'Forbidden: User does not have permission to create a post',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '500' => [
-                            'description' => 'Internal server error, unable to create post'
+                            'description' => 'Internal Server Error',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ]
                     ],
                     'security' => [['ApiKeyAuth' => []]]
@@ -1404,49 +1486,66 @@ function gpt_openapi_schema_handler()
                             'name' => 'id',
                             'in' => 'path',
                             'required' => true,
-                            'schema' => [
-                                'type' => 'integer'
-                            ]
+                            'schema' => ['type' => 'integer'],
+                            'description' => 'ID of the post to edit'
                         ]
                     ],
                     'requestBody' => [
                         'required' => true,
                         'content' => [
                             'application/json' => [
-                                'schema' => [
-                                    '$ref' => '#/components/schemas/PostInput'
-                                ]
+                                'schema' => ['\$ref' => '#/components/schemas/PostInput']
                             ]
                         ]
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Post updated successfully',
+                            'description' => 'Post updated',
                             'content' => [
                                 'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'post_id' => ['type' => 'integer']
-                                        ]
-                                    ]
+                                    'schema' => ['\$ref' => '#/components/schemas/PostResponse']
                                 ]
                             ]
                         ],
                         '400' => [
-                            'description' => 'Bad Request: Invalid input or missing required fields'
+                            'description' => 'Bad Request: Invalid input or missing required fields',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '401' => [
-                            'description' => 'Unauthorized: Missing or invalid API key'
+                            'description' => 'Unauthorized: Missing or invalid API key',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '403' => [
-                            'description' => 'Forbidden: User does not have permission to edit this post'
+                            'description' => 'Forbidden: User does not have permission to edit this post',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '404' => [
-                            'description' => 'Not Found: The post with the specified ID does not exist'
+                            'description' => 'Not Found: The post with the specified ID does not exist',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '500' => [
-                            'description' => 'Internal server error, unable to update post'
+                            'description' => 'Internal Server Error',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ]
                     ],
                     'security' => [['ApiKeyAuth' => []]]
@@ -1459,42 +1558,79 @@ function gpt_openapi_schema_handler()
                     'requestBody' => [
                         'required' => true,
                         'content' => [
+                            'application/json' => [
+                                'schema' => ['\$ref' => '#/components/schemas/MediaUpload'],
+                                'examples' => [
+                                    'remote_url' => [
+                                        'summary' => 'Upload from remote URL',
+                                        'value' => [
+                                            'image_url' => 'https://example.com/image.jpg'
+                                        ]
+                                    ]
+                                ]
+                            ],
                             'multipart/form-data' => [
                                 'schema' => [
-                                    '$ref' => '#/components/schemas/MediaUpload'
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'file' => [
+                                            'type' => 'string',
+                                            'format' => 'binary',
+                                            'description' => 'Image file to upload'
+                                        ]
+                                    ]
                                 ]
                             ]
                         ]
                     ],
                     'responses' => [
                         '200' => [
-                            'description' => 'Media uploaded successfully',
+                            'description' => 'Media uploaded',
                             'content' => [
                                 'application/json' => [
-                                    'schema' => [
-                                        'type' => 'object',
-                                        'properties' => [
-                                            'attachment_id' => ['type' => 'integer'],
-                                            'url' => ['type' => 'string']
-                                        ]
-                                    ]
+                                    'schema' => ['\$ref' => '#/components/schemas/MediaUploadResponse']
                                 ]
                             ]
                         ],
                         '400' => [
-                            'description' => 'Bad Request: Invalid file type or URL'
+                            'description' => 'Bad Request: Invalid file type or URL',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '401' => [
-                            'description' => 'Unauthorized: Missing or invalid API key'
+                            'description' => 'Unauthorized: Missing or invalid API key',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '403' => [
-                            'description' => 'Forbidden: User does not have permission to upload media'
+                            'description' => 'Forbidden: User does not have permission to upload media',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '404' => [
-                            'description' => 'Not Found: The media file URL is invalid or unreachable'
+                            'description' => 'Not Found: The media file URL is invalid or unreachable',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ],
                         '500' => [
-                            'description' => 'Internal server error, unable to upload media'
+                            'description' => 'Internal Server Error',
+                            'content' => [
+                                'application/json' => [
+                                    'schema' => ['\$ref' => '#/components/schemas/ErrorResponse']
+                                ]
+                            ]
                         ]
                     ],
                     'security' => [['ApiKeyAuth' => []]]
@@ -1508,8 +1644,6 @@ function gpt_openapi_schema_handler()
 // --------END-----SCHEMA----------------END-----SCHEMA--SECTION----------------
 
 
-
-// ---🔴-----END-----SCHEMA--------🌍--------END-----SCHEMA--SECTION-----🧭-----
 
 // -----------------------------------------------------------------------------
 // --- REST: Dynamic ai-plugin.json Manifest Endpoint ---
